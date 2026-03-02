@@ -4,5 +4,3 @@ __pycache__/
 *.pyo
 .pytest_cache/
 
-# Generated HTML reports (run locally)
-qa_report.html
