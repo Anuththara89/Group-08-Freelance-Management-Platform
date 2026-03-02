@@ -3,12 +3,16 @@ test_02_edge_cases.py
 =====================
 Logical edge cases and payload validation tests.
 
+These tests intentionally send BAD or unusual data to the API to verify
+it handles errors correctly (proper HTTP status codes, no crashes).
+
 Covers:
   - Duplicate fullName prevention on create
   - Update conflict when renaming to an existing fullName
-  - ID not found (GET, DELETE with non-existent ID)
+  - ID not found (GET, DELETE, PUT with non-existent ID)
   - Empty / null email on create
-  - Invalid salary values
+  - Invalid salary values (negative, zero, string)
+  - Re-registration loop (create → delete → re-create)
 """
 import pytest
 import requests
@@ -28,9 +32,12 @@ class TestDuplicateNameOnCreate:
 
     def test_duplicate_fullName_returns_4xx(self, live_freelancer):
         """
-        Expected: 400 Bad Request (IllegalArgumentException).
-        Spring Boot default maps unhandled exceptions to 500 — this test
-        verifies any non-2xx response, flagging 500 as a missing error handler.
+        WHAT:  Try to create a NEW freelancer using the same fullName as an
+               existing one (but a different email).
+        WHY:   The system has a business rule: no two freelancers can share
+               the same fullName. The service checks existsByFullName() and
+               should throw IllegalArgumentException → HTTP 400.
+        CHECK: status_code == 400 (not 201, not 500).
         """
         payload = {**live_freelancer["payload"]}
         # Use a different email so the uniqueness constraint on email doesn't fire first
@@ -49,13 +56,18 @@ class TestDuplicateNameOnCreate:
         )
 
     def test_duplicate_fullName_response_contains_error_message(self, live_freelancer):
-        """Error response for duplicate name must contain a meaningful message."""
+        """
+        WHAT:  Send a duplicate fullName and inspect the error message body.
+        WHY:   Even when the request is rejected, the API should return a
+               human-readable error message (e.g., "Freelancer already exists"),
+               not a blank 500 page.
+        CHECK: Response body contains keywords like "already exists" or "duplicate".
+        """
         payload = {**live_freelancer["payload"]}
         payload["email"] = f"dup2.{payload['email']}"
 
         r = requests.post(f"{BASE_URL}/create", json=payload)
         if r.status_code == 201:
-            # Cleanup if somehow created
             fl = find_freelancer_by_email(payload["email"])
             if fl:
                 requests.delete(f"{BASE_URL}/{fl['id']}")
@@ -78,10 +90,14 @@ class TestUpdateNameConflict:
 
     def test_update_to_existing_fullName_returns_4xx(self, live_freelancer):
         """
-        Create a second freelancer, then try to rename it to the first one's name.
-        Expected: 400.  Actual likely: 500 (missing error handler).
+        WHAT:  Create TWO freelancers (A and B). Then try to rename B's
+               fullName to A's fullName via PUT.
+        WHY:   The system must block this rename because A already owns that
+               name. The service checks findByFullName() and compares IDs.
+        CHECK: PUT returns 400 (not 200, not 500).
+        CLEANUP: Freelancer B is deleted in the finally block.
         """
-        # Create a second freelancer
+        # Create a second freelancer (B)
         second_payload = make_payload()
         r_create = requests.post(f"{BASE_URL}/create", json=second_payload)
         assert r_create.status_code == 201, "Pre-condition: second freelancer creation failed."
@@ -89,7 +105,7 @@ class TestUpdateNameConflict:
         assert second_fl is not None
 
         try:
-            # Attempt to rename second → first's fullName (conflict)
+            # Attempt to rename B → A's fullName (conflict)
             conflict_payload = {**second_payload, "fullName": live_freelancer["payload"]["fullName"]}
             r = requests.put(f"{BASE_URL}/{second_fl['id']}", json=conflict_payload)
 
@@ -110,13 +126,18 @@ class TestUpdateNameConflict:
 
 @pytest.mark.edge
 class TestIdNotFound:
-    """Requests with non-existent IDs must return 404, not 500."""
+    """
+    Requests with a non-existent ID (999999) must return HTTP 404.
+    Currently the API returns 500 for all of these because there is
+    no @ControllerAdvice mapping exceptions to proper status codes.
+    """
 
     def test_get_nonexistent_id_returns_404(self):
         """
-        GET /api/freelancer/{non-existent-id} should return 404.
-        Expected: 404 (ResourceNotFoundException).
-        Actual likely: 500 (no @ResponseStatus or @ExceptionHandler).
+        WHAT:  GET /api/freelancer/999999 (an ID that doesn't exist).
+        WHY:   The service throws ResourceNotFoundException, which should
+               map to 404. Without a @ControllerAdvice, Spring returns 500.
+        CHECK: status_code == 404
         """
         r = requests.get(f"{BASE_URL}/{NON_EXISTENT_ID}")
         assert r.status_code == 404, (
@@ -127,10 +148,11 @@ class TestIdNotFound:
 
     def test_delete_nonexistent_id_returns_404(self):
         """
-        DELETE /api/freelancer/{non-existent-id} should return 404.
-        Expected: 404.
-        Actual likely: 500 (IllegalArgumentException thrown in deleteFreelancer,
-        not mapped to any HTTP status).
+        WHAT:  DELETE /api/freelancer/999999 (an ID that doesn't exist).
+        WHY:   Attempting to delete a missing resource should return 404.
+               The service currently throws IllegalArgumentException (wrong type)
+               AND it's unmapped (returns 500).
+        CHECK: status_code == 404
         """
         r = requests.delete(f"{BASE_URL}/{NON_EXISTENT_ID}")
         assert r.status_code == 404, (
@@ -141,7 +163,9 @@ class TestIdNotFound:
 
     def test_put_nonexistent_id_returns_404(self):
         """
-        PUT /api/freelancer/{non-existent-id} should return 404.
+        WHAT:  PUT /api/freelancer/999999 with a valid body (ID doesn't exist).
+        WHY:   Updating a non-existent resource should return 404.
+        CHECK: status_code == 404
         """
         payload = make_payload()
         r = requests.put(f"{BASE_URL}/{NON_EXISTENT_ID}", json=payload)
@@ -150,10 +174,15 @@ class TestIdNotFound:
         )
 
     def test_error_body_on_not_found_is_descriptive(self):
-        """Error response for not-found should contain a useful message, not a raw stack trace."""
+        """
+        WHAT:  GET a non-existent ID and inspect the error response body.
+        WHY:   The error response should NOT contain raw Java stack traces
+               (e.g., "at com.freelance.freelancepm.service..."). Exposing
+               internals is a security risk and bad UX.
+        CHECK: Response body does NOT contain "at com.freelance".
+        """
         r = requests.get(f"{BASE_URL}/{NON_EXISTENT_ID}")
         body = r.text.lower()
-        # Should NOT expose internal stack traces
         assert "at com.freelance" not in body, (
             "[BUG] Error response exposes internal Java stack trace. "
             "This is a security / UX issue."
@@ -166,19 +195,25 @@ class TestIdNotFound:
 
 @pytest.mark.edge
 class TestEmptyEmailOnCreate:
-    """POST /api/freelancer/create without an email must be rejected."""
+    """
+    POST /api/freelancer/create without a valid email must be rejected.
+    The users.email column is NOT NULL + UNIQUE in the database, but the
+    app has no Bean Validation (@NotBlank, @Email) on the DTO.
+    """
 
     def test_create_without_email_returns_4xx(self):
         """
-        Expected: 400 (DataIntegrityViolationException from NOT NULL constraint).
-        Actual likely: 500.
+        WHAT:  Send a POST request with the "email" field completely missing.
+        WHY:   The DB has a NOT NULL constraint on users.email. Without the
+               field, the insert will fail. The API should return 400, but
+               because there's no @ControllerAdvice, it returns 500.
+        CHECK: status_code == 400
         """
         payload = make_payload()
         del payload["email"]  # Remove email entirely
 
         r = requests.post(f"{BASE_URL}/create", json=payload)
 
-        # If it somehow succeeded, clean up
         if r.status_code == 201:
             body = r.json()
             fl = find_freelancer_by_email(body.get("email", ""))
@@ -195,7 +230,11 @@ class TestEmptyEmailOnCreate:
         )
 
     def test_create_with_null_email_returns_4xx(self):
-        """Explicitly passing null email must also be rejected."""
+        """
+        WHAT:  Send a POST with "email": null explicitly in the JSON body.
+        WHY:   Same NOT NULL constraint as above. Null should be rejected.
+        CHECK: status_code == 400
+        """
         payload = make_payload()
         payload["email"] = None
 
@@ -209,7 +248,13 @@ class TestEmptyEmailOnCreate:
         )
 
     def test_create_with_empty_string_email_returns_4xx(self):
-        """Empty string email must be rejected."""
+        """
+        WHAT:  Send a POST with "email": "" (empty string).
+        WHY:   An empty string passes the NOT NULL constraint at DB level,
+               but it's semantically invalid — you can't send onboarding
+               credentials to "". The app needs @NotBlank validation.
+        CHECK: status_code == 400 (currently returns 201 — this is a bug).
+        """
         payload = make_payload()
         payload["email"] = ""
 
@@ -232,13 +277,18 @@ class TestEmptyEmailOnCreate:
 
 @pytest.mark.edge
 class TestInvalidSalary:
-    """Salary field must handle invalid inputs gracefully."""
+    """
+    Salary is a BigDecimal field. These tests verify the API handles
+    bad salary values (negative, zero, non-numeric string) correctly.
+    """
 
-    def test_create_with_negative_salary_is_rejected_or_succeeds_gracefully(self):
+    def test_create_with_negative_salary_is_rejected(self):
         """
-        A negative salary is questionable business logic.
-        At minimum, it must not cause an unhandled 500 error.
-        Expected: either 400 (validation) or 201 if negative salaries are allowed by design.
+        WHAT:  Send a POST with "salary": -1000.00.
+        WHY:   A negative salary makes no business sense — no freelancer
+               should owe money for working. The API should reject this
+               with 400. Currently it accepts it (201) — this is a bug.
+        CHECK: status_code == 400
         """
         payload = make_payload()
         payload["salary"] = -1000.00
@@ -248,17 +298,39 @@ class TestInvalidSalary:
         if fl:
             requests.delete(f"{BASE_URL}/{fl['id']}")
 
-        assert r.status_code in (201, 400), (
-            f"[BUG] Negative salary caused unexpected server error {r.status_code}. "
-            f"The API should either accept or explicitly reject it with 400."
+        assert r.status_code == 400, (
+            f"[BUG] Negative salary was accepted (status {r.status_code}). "
+            f"The API has no validation to prevent negative salary values. "
+            f"A @Positive or @Min(0) constraint is needed on the salary field."
+        )
+
+    def test_create_with_zero_salary_is_accepted(self):
+        """
+        WHAT:  Send a POST with "salary": 0.
+        WHY:   Zero salary is considered valid (e.g., unpaid intern or volunteer).
+               The API should accept it with 201.
+        CHECK: status_code == 201
+        """
+        payload = make_payload()
+        payload["salary"] = 0
+
+        r = requests.post(f"{BASE_URL}/create", json=payload)
+        fl = find_freelancer_by_email(payload["email"])
+        if fl:
+            requests.delete(f"{BASE_URL}/{fl['id']}")
+
+        assert r.status_code == 201, (
+            f"[BUG] Zero salary was rejected (status {r.status_code}). "
+            f"Zero salary should be valid for unpaid interns or volunteers."
         )
 
     def test_create_with_string_salary_returns_4xx(self):
         """
-        Sending a non-numeric string as salary must be rejected cleanly.
-        Spring's BigDecimal deserialization should return 400.
+        WHAT:  Send "salary": "not-a-number" (a string where BigDecimal is expected).
+        WHY:   Spring/Jackson cannot deserialize "not-a-number" into BigDecimal.
+               It should return 400 (Bad Request) automatically.
+        CHECK: status_code == 400
         """
-        # Send raw JSON with a string where a number is expected
         import json
         payload_str = json.dumps({
             "email": f"badsalary.{make_payload()['email']}",
@@ -277,17 +349,25 @@ class TestInvalidSalary:
 
 
 # ===========================================================================
-# TC-EDGE-06  Re-Registration Loop
+# TC-EDGE-06  Re-Registration Loop (Create → Delete → Re-Create)
 # ===========================================================================
 
 @pytest.mark.edge
 class TestReRegistrationLoop:
-    """Create → Delete → Re-create with same email must succeed."""
+    """
+    After a freelancer is deleted, their email and fullName should be
+    freed up so a new freelancer can be created with the same values.
+    This validates that DELETE actually cleans up all records.
+    """
 
     def test_recreate_after_delete_with_same_email(self):
         """
-        After deleting a freelancer, creating a new one with the same email
-        must succeed (email unique constraint in users table must be cleared).
+        WHAT:  Create freelancer A → Delete A → Create B with A's email.
+        WHY:   The users.email column has a UNIQUE constraint. If DELETE
+               doesn't remove the user row, the email is still "taken" and
+               re-registration fails with a constraint violation.
+               This would leave "ghost" login accounts in the DB.
+        CHECK: The second POST returns 201 (re-registration succeeds).
         """
         payload = make_payload()
 
@@ -306,7 +386,7 @@ class TestReRegistrationLoop:
         payload2 = {**payload, "fullName": f"Renewed {payload['fullName']}"}
         r3 = requests.post(f"{BASE_URL}/create", json=payload2)
 
-        # Cleanup if it succeeded
+        # Cleanup
         fl2 = find_freelancer_by_email(payload2["email"])
         if fl2:
             requests.delete(f"{BASE_URL}/{fl2['id']}")
@@ -320,8 +400,11 @@ class TestReRegistrationLoop:
 
     def test_recreate_after_delete_with_same_fullname(self):
         """
-        After deleting, creating with the same fullName must also succeed.
-        (The fullName duplicate check in the service must be cleared after delete.)
+        WHAT:  Create freelancer A → Delete A → Create C with A's fullName.
+        WHY:   The service has a duplicate-name check (existsByFullName).
+               If DELETE doesn't remove the freelancer row, the fullName is
+               still "taken" and creation fails with "Freelancer already exists".
+        CHECK: The second POST returns 201 (re-registration succeeds).
         """
         payload = make_payload()
 

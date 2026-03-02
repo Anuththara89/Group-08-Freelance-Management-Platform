@@ -3,12 +3,11 @@ test_03_integrity.py
 ====================
 Relational integrity, cascade delete, and security (password exposure) tests.
 
-Covers:
-  - Cascade delete: deleting a Freelancer must also wipe the User record
-  - Manager linkage: every freelancer must be linked to manager ID 1
-  - Password security: GET requests must NOT expose BCrypt password hashes
-  - Credential verification: the plain-text password in create response
-    must be a valid BCrypt match against the stored hash
+These tests go deeper than basic CRUD — they verify:
+  - CASCADE DELETE: deleting a freelancer must also wipe the associated User row
+  - MANAGER LINKAGE: every freelancer must be linked to manager ID 1
+  - PASSWORD SECURITY: GET responses must NOT expose BCrypt hashes
+  - CREDENTIAL VERIFICATION: the generated password must actually work
 """
 import pytest
 import requests
@@ -28,19 +27,21 @@ except ImportError:
 @pytest.mark.integrity
 class TestCascadeDelete:
     """
-    After DELETE /api/freelancer/{id}, both the freelancer and its
-    associated user record must be gone.
+    The database schema has: freelancer.user_id REFERENCES users(id) ON DELETE CASCADE.
+    The service calls userRepository.deleteById(user_id), which deletes the User row.
+    The CASCADE should automatically remove the Freelancer row too.
 
-    The service calls userRepository.deleteById(user_id). Because the
-    freelancer table uses ON DELETE CASCADE referencing users(id), the
-    freelancer row is removed automatically. This test validates the
-    cascade works end-to-end via the API (proxy check: GET by ID returns
-    non-200, and re-creating with the same email succeeds without a
-    unique-constraint violation).
+    If this is broken, we'll have "ghost" logins in the users table —
+    accounts that can still authenticate but have no corresponding freelancer profile.
     """
 
     def test_delete_cascade_freelancer_record_removed(self):
-        """After DELETE, GET /api/freelancer/{id} must NOT return 200."""
+        """
+        WHAT:  Create a freelancer, DELETE it, then try to GET it by ID.
+        WHY:   After deletion, fetching the same ID must return 404 (not 200).
+               If it still returns 200, the freelancer record was NOT deleted.
+        CHECK: GET /api/freelancer/{deleted_id} returns 404.
+        """
         payload = make_payload()
         r = requests.post(f"{BASE_URL}/create", json=payload)
         assert r.status_code == 201
@@ -50,16 +51,19 @@ class TestCascadeDelete:
         requests.delete(f"{BASE_URL}/{fid}")
 
         r_get = requests.get(f"{BASE_URL}/{fid}")
-        assert r_get.status_code != 200, (
-            f"[BUG] GET /api/freelancer/{fid} still returns 200 after DELETE. "
-            f"The freelancer record was NOT removed — cascade delete is BROKEN."
+        assert r_get.status_code == 404, (
+            f"[BUG] GET /api/freelancer/{fid} returned {r_get.status_code} after DELETE. "
+            f"Expected 404. The freelancer record was NOT removed — cascade delete "
+            f"may be broken, or the exception is not mapped to 404."
         )
 
     def test_delete_cascade_user_record_removed_via_email_reuse(self):
         """
-        After DELETE, re-creating with the same email must succeed.
-        If the users row is NOT deleted, the unique constraint on users.email
-        will prevent re-registration, proving a 'ghost login' vulnerability.
+        WHAT:  Create a freelancer → Delete it → Try to re-create with the SAME email.
+        WHY:   The users.email column is UNIQUE. If the User row was NOT deleted by
+               the cascade, re-creating with the same email will fail because the
+               old email still occupies the unique slot. This proves "ghost logins" exist.
+        CHECK: Re-creation returns 201 (the old user row was fully cleaned up).
         """
         payload = make_payload()
 
@@ -74,7 +78,7 @@ class TestCascadeDelete:
         r_del = requests.delete(f"{BASE_URL}/{fid}")
         assert r_del.status_code == 200, f"Delete failed: {r_del.text}"
 
-        # Attempt re-registration with the same email (new fullName)
+        # Re-create with the same email (new fullName to avoid name-duplicate check)
         payload2 = {**payload, "fullName": f"Reborn {payload['fullName']}"}
         r2 = requests.post(f"{BASE_URL}/create", json=payload2)
 
@@ -91,7 +95,12 @@ class TestCascadeDelete:
         )
 
     def test_delete_removes_from_roster(self):
-        """After DELETE, the freelancer must not appear in GET /api/freelancer."""
+        """
+        WHAT:  Create a freelancer → Delete it → Check the roster list.
+        WHY:   The deleted freelancer's ID must not appear in the
+               GET /api/freelancer response anymore.
+        CHECK: The deleted ID is NOT in the list of roster IDs.
+        """
         payload = make_payload()
         r = requests.post(f"{BASE_URL}/create", json=payload)
         assert r.status_code == 201
@@ -114,10 +123,19 @@ class TestCascadeDelete:
 
 @pytest.mark.integrity
 class TestManagerLinkage:
-    """Every created freelancer must be linked to manager ID 1."""
+    """
+    The service hardcodes: userRepository.findById(1) to get the manager.
+    Every freelancer is linked to this manager (user ID 1).
+    If manager_id is null, the admin's "View Freelancer" page will fail.
+    """
 
     def test_created_freelancer_has_manager_id_1(self, temp_freelancer):
-        """GET /api/freelancer/{id} must show manager.id == 1 for a newly created freelancer."""
+        """
+        WHAT:  Fetch a newly created freelancer by ID and check its manager.
+        WHY:   The freelancer's manager field must point to user ID 1 (the
+               system manager). A null or wrong manager breaks the admin UI.
+        CHECK: response.manager.id == 1
+        """
         fid = temp_freelancer["id"]
         r = requests.get(f"{BASE_URL}/{fid}")
         assert r.status_code == 200
@@ -134,7 +152,12 @@ class TestManagerLinkage:
         )
 
     def test_all_roster_freelancers_have_manager_id_1(self):
-        """All freelancers in the roster must be linked to manager ID 1."""
+        """
+        WHAT:  Fetch ALL freelancers and verify each one has manager.id == 1.
+        WHY:   This is a global check — not just newly created ones, but every
+               freelancer in the system must be linked to the manager.
+        CHECK: For every freelancer in the roster: manager is not null AND id == 1.
+        """
         r = requests.get(BASE_URL)
         assert r.status_code == 200
         roster = r.json()
@@ -159,13 +182,16 @@ class TestManagerLinkage:
 @pytest.mark.security
 class TestPasswordSecurity:
     """
-    GET endpoints must NOT expose BCrypt password hashes to the frontend.
-    The User entity includes a `password` field that is serialized unless
-    explicitly ignored with @JsonIgnore.
+    The User entity has a "password" field that stores BCrypt hashes.
+    When the Freelancer entity is serialized to JSON (via GET endpoints),
+    the nested User object's password field gets included in the response.
+
+    This is a CRITICAL security vulnerability — BCrypt hashes should NEVER
+    be sent to the frontend. The fix is to add @JsonIgnore on User.password.
     """
 
     def _assert_no_password_hash_exposed(self, obj: dict, context: str):
-        """Recursively check a dict/list for BCrypt hash patterns."""
+        """Helper: recursively scan a JSON object for BCrypt hash patterns."""
         if isinstance(obj, dict):
             for key, val in obj.items():
                 if key == "password":
@@ -182,13 +208,24 @@ class TestPasswordSecurity:
                 self._assert_no_password_hash_exposed(item, context)
 
     def test_get_all_does_not_expose_bcrypt_hashes(self):
-        """GET /api/freelancer must not include BCrypt password hashes in any object."""
+        """
+        WHAT:  Fetch the full roster and scan every nested object for BCrypt hashes.
+        WHY:   The GET /api/freelancer response includes nested "user" and "manager"
+               objects. Both contain a "password" field with BCrypt hashes that
+               should never be sent to the frontend.
+        CHECK: No field named "password" contains a value starting with "$2".
+        """
         r = requests.get(BASE_URL)
         assert r.status_code == 200
         self._assert_no_password_hash_exposed(r.json(), "GET /api/freelancer")
 
     def test_get_by_id_does_not_expose_bcrypt_hash(self, live_freelancer):
-        """GET /api/freelancer/{id} must not include a BCrypt hash in the response."""
+        """
+        WHAT:  Fetch a single freelancer by ID and check for BCrypt hash exposure.
+        WHY:   Same vulnerability as the roster — the single-record endpoint also
+               returns the nested User object with the password hash.
+        CHECK: No "password" field contains a BCrypt hash.
+        """
         fid = live_freelancer["id"]
         r = requests.get(f"{BASE_URL}/{fid}")
         assert r.status_code == 200
@@ -196,25 +233,31 @@ class TestPasswordSecurity:
 
     def test_get_all_user_object_has_no_password_field(self):
         """
-        The nested `user` object in GET responses must not contain a `password` key at all,
-        or the value must be null/omitted.
+        WHAT:  Check that the nested "user" object does NOT contain a "password"
+               key AT ALL in the roster response.
+        WHY:   Even if the password value were null, the key's mere presence
+               signals to attackers that credentials are stored here. The field
+               should be completely hidden via @JsonIgnore.
+        CHECK: "password" key does NOT exist in any user object.
         """
         r = requests.get(BASE_URL)
         assert r.status_code == 200
         for fl in r.json():
             user = fl.get("user", {})
-            if "password" in user and user["password"] is not None:
-                assert not str(user["password"]).startswith("$2"), (
-                    f"[BUG][SECURITY] 'user.password' field exposed in roster for "
-                    f"freelancer id={fl.get('id')}. "
-                    f"Add @JsonIgnore on User.password or use a DTO without password."
-                )
+            assert "password" not in user, (
+                f"[BUG][SECURITY] 'user.password' field is present in roster for "
+                f"freelancer id={fl.get('id')}. "
+                f"Add @JsonIgnore on User.password or use a DTO without password. "
+                f"Value: '{str(user.get('password', ''))[:15]}...'"
+            )
 
     def test_manager_password_not_exposed_in_get_all(self):
         """
-        The nested `manager` object in GET responses must not expose its password.
-        The manager's password was found to be 'dummy_hash' in the seed data,
-        which is a plaintext value — this should be a BCrypt hash AND must not be returned.
+        WHAT:  Check that the nested "manager" object does NOT expose its password.
+        WHY:   The manager is also a User entity. Its password field is exposed too.
+               Worse: the manager's seed data stores "dummy_hash" as plaintext
+               (not even a BCrypt hash) — a critical security vulnerability.
+        CHECK: "password" key does NOT exist in any manager object.
         """
         r = requests.get(BASE_URL)
         assert r.status_code == 200
@@ -222,7 +265,6 @@ class TestPasswordSecurity:
             manager = fl.get("manager", {})
             fid = fl.get("id")
             if "password" in manager and manager["password"] is not None:
-                # It should never be exposed regardless of its value
                 pytest.fail(
                     f"[BUG][SECURITY] 'manager.password' field is exposed for "
                     f"freelancer id={fid}. "
@@ -234,8 +276,12 @@ class TestPasswordSecurity:
 
     def test_create_response_password_is_one_time_only(self, live_freelancer):
         """
-        The plain-text password must ONLY appear in the create response.
-        Subsequent GET requests must not expose it.
+        WHAT:  After creating a freelancer, fetch it via GET and verify the
+               plain-text password from the create response is NOT in the GET body.
+        WHY:   The plain-text password should only appear ONCE (in the create
+               response for onboarding). It should never be stored or returned
+               in subsequent GET requests.
+        CHECK: The exact plain-text password string is NOT found in the GET response.
         """
         create_password = live_freelancer["create_response"].get("password", "")
         fid = live_freelancer["id"]
@@ -243,7 +289,6 @@ class TestPasswordSecurity:
         r = requests.get(f"{BASE_URL}/{fid}")
         body_text = r.text
 
-        # The plain-text password should not appear verbatim in GET responses
         assert create_password not in body_text, (
             f"[BUG][SECURITY] The one-time plain-text password from create "
             f"('{create_password}') was found verbatim in the GET /api/freelancer/{fid} "
@@ -258,19 +303,22 @@ class TestPasswordSecurity:
 @pytest.mark.security
 class TestCredentialVerification:
     """
-    The plain-text password returned in the create response must be valid.
-    It should be verifiable against the BCrypt hash stored for the user.
+    The system generates a 12-character password, hashes it with BCrypt,
+    and stores the hash in the users table. These tests verify the
+    generated password is valid, complex, and matches the stored hash.
     """
 
     @pytest.mark.skipif(not BCRYPT_AVAILABLE, reason="bcrypt package not installed")
     def test_create_password_matches_stored_bcrypt_hash(self, live_freelancer):
         """
-        The plain-text password in the create response must hash-match the
-        BCrypt value stored in the user record (if accessible).
-
-        NOTE: This test requires the GET endpoint to expose user.password (which
-        is itself a security bug). Marked as advisory — if the security bug is
-        fixed first, this test needs a DB-level check instead.
+        WHAT:  Take the plain-text password from the create response and verify
+               it matches the BCrypt hash stored in the database (accessed via GET).
+        WHY:   If the password doesn't match the hash, the freelancer will NEVER
+               be able to log in — the onboarding password is useless.
+        NOTE:  This test relies on the GET endpoint exposing user.password (BUG-02).
+               If BUG-02 is fixed (password hidden), this test will fail with a
+               clear message explaining that a DB-level check is needed instead.
+        CHECK: bcrypt.checkpw(plain_password, stored_hash) == True
         """
         fid = live_freelancer["id"]
         plain_password = live_freelancer["create_response"].get("password", "")
@@ -280,9 +328,11 @@ class TestCredentialVerification:
         stored_hash = body.get("user", {}).get("password")
 
         if stored_hash is None:
-            pytest.skip(
-                "user.password not exposed in GET response — "
-                "cannot verify BCrypt match via API (good from a security standpoint)."
+            pytest.fail(
+                "[INFO] user.password not exposed in GET response — "
+                "cannot verify BCrypt match via API. "
+                "This means BUG-02 (password exposure) is fixed. "
+                "Replace this test with a direct DB query to verify BCrypt match."
             )
 
         if not stored_hash.startswith("$2"):
@@ -301,7 +351,12 @@ class TestCredentialVerification:
         )
 
     def test_create_password_is_not_empty(self, live_freelancer):
-        """The create response password must not be empty."""
+        """
+        WHAT:  Check that the create response actually contains a password.
+        WHY:   If the PasswordGenerator fails silently, the response might
+               contain an empty string — making onboarding impossible.
+        CHECK: password is not empty and not None.
+        """
         pwd = live_freelancer["create_response"].get("password", "")
         assert pwd, (
             "[BUG] Create response password is empty. "
@@ -310,13 +365,16 @@ class TestCredentialVerification:
 
     def test_create_password_has_complexity(self, live_freelancer):
         """
-        The 12-character password should contain at least one uppercase letter,
-        one lowercase letter, one digit, and one special character
-        (as documented in PasswordGenerator).
+        WHAT:  Verify the generated password contains all required character types.
+        WHY:   The PasswordGenerator is documented to produce passwords with
+               uppercase, lowercase, digits, and special characters. If any
+               category is missing, the password may be weak.
+        CHECK: At least 1 uppercase, 1 lowercase, 1 digit, 1 special character.
         """
         pwd = live_freelancer["create_response"].get("password", "")
-        if not pwd:
-            pytest.skip("No password in create response — cannot check complexity.")
+        assert pwd, (
+            "[BUG] Create response password is empty — cannot check complexity."
+        )
 
         has_upper = any(c.isupper() for c in pwd)
         has_lower = any(c.islower() for c in pwd)

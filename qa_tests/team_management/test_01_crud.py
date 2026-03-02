@@ -1,11 +1,14 @@
 """
 test_01_crud.py
 ===============
-Core CRUD lifecycle tests for POST /api/freelancer/create,
-GET /api/freelancer, GET /api/freelancer/{id},
-PUT /api/freelancer/{id}, DELETE /api/freelancer/{id}.
+Core CRUD lifecycle tests for the Freelancer API.
 
-Tests are ordered and share state via the `live_freelancer` class fixture.
+These tests verify the five basic operations:
+  1. CREATE  - POST /api/freelancer/create
+  2. READ    - GET  /api/freelancer  (all freelancers)
+  3. READ    - GET  /api/freelancer/{id}  (single freelancer)
+  4. UPDATE  - PUT  /api/freelancer/{id}
+  5. DELETE  - DELETE /api/freelancer/{id}
 """
 import pytest
 import requests
@@ -21,12 +24,14 @@ class TestCreateFreelancer:
     """POST /api/freelancer/create"""
 
     def test_create_returns_201(self, temp_freelancer):
-        """Create should respond with HTTP 201 Created."""
-        # temp_freelancer fixture already asserts 201 internally;
-        # re-verify via an independent call for explicit assertion tracking.
+        """
+        WHAT:  Send a valid POST request with email + fullName to create a freelancer.
+        WHY:   The API must respond with HTTP 201 (Created) when input is valid.
+        CHECK: response.status_code == 201
+        """
         payload = make_payload()
         r = requests.post(f"{BASE_URL}/create", json=payload)
-        # cleanup
+        # cleanup the freelancer we just created so it doesn't pollute the DB
         fl = find_freelancer_by_email(payload["email"])
         if fl:
             requests.delete(f"{BASE_URL}/{fl['id']}")
@@ -35,7 +40,12 @@ class TestCreateFreelancer:
         )
 
     def test_create_response_contains_memberName(self, temp_freelancer):
-        """Create response must contain memberName field."""
+        """
+        WHAT:  After creating a freelancer, check the JSON response body.
+        WHY:   The response must include "memberName" matching the fullName we sent,
+               so the frontend can display a confirmation.
+        CHECK: "memberName" key exists AND equals the fullName from our request.
+        """
         payload = make_payload()
         r = requests.post(f"{BASE_URL}/create", json=payload)
         fl = find_freelancer_by_email(payload["email"])
@@ -48,7 +58,12 @@ class TestCreateFreelancer:
         assert body["memberName"] == payload["fullName"]
 
     def test_create_response_contains_email(self, temp_freelancer):
-        """Create response must contain the email field."""
+        """
+        WHAT:  After creating a freelancer, check the JSON response body.
+        WHY:   The response must echo back the "email" we sent,
+               confirming the correct account was created.
+        CHECK: "email" key exists AND matches our input.
+        """
         payload = make_payload()
         r = requests.post(f"{BASE_URL}/create", json=payload)
         fl = find_freelancer_by_email(payload["email"])
@@ -59,7 +74,12 @@ class TestCreateFreelancer:
         assert body["email"] == payload["email"]
 
     def test_create_response_password_is_12_chars(self, temp_freelancer):
-        """Create response must include a plain-text password of exactly 12 characters."""
+        """
+        WHAT:  After creating a freelancer, check the password in the response.
+        WHY:   The system auto-generates a 12-character onboarding password.
+               This password is shown ONCE so the admin can share it with the freelancer.
+        CHECK: "password" key exists AND is exactly 12 characters long.
+        """
         payload = make_payload()
         r = requests.post(f"{BASE_URL}/create", json=payload)
         fl = find_freelancer_by_email(payload["email"])
@@ -75,7 +95,13 @@ class TestCreateFreelancer:
         )
 
     def test_create_response_password_is_plain_text(self, temp_freelancer):
-        """Create response password must NOT be a BCrypt hash."""
+        """
+        WHAT:  Verify the password in the create response is plain text, not a hash.
+        WHY:   The admin needs a readable password to give to the freelancer.
+               If the API accidentally returns the BCrypt hash (starts with "$2a$"),
+               it's useless for onboarding.
+        CHECK: password does NOT start with "$2a$" or "$2b$".
+        """
         payload = make_payload()
         r = requests.post(f"{BASE_URL}/create", json=payload)
         fl = find_freelancer_by_email(payload["email"])
@@ -89,22 +115,31 @@ class TestCreateFreelancer:
 
 
 # ===========================================================================
-# TC-CRUD-02  View Roster
+# TC-CRUD-02  View Roster (list all freelancers)
 # ===========================================================================
 
 @pytest.mark.crud
 class TestViewRoster:
-    """GET /api/freelancer"""
+    """GET /api/freelancer — returns the full list of freelancers."""
 
     def test_get_all_returns_200(self):
-        """GET /api/freelancer must return HTTP 200."""
+        """
+        WHAT:  Send a GET request to the freelancer list endpoint.
+        WHY:   This is the main roster page — it must always return 200.
+        CHECK: response.status_code == 200
+        """
         r = requests.get(BASE_URL)
         assert r.status_code == 200, (
             f"[BUG] Expected 200, got {r.status_code}"
         )
 
     def test_get_all_returns_json_array(self):
-        """GET /api/freelancer must return a JSON array."""
+        """
+        WHAT:  Verify the response body is a JSON array (list).
+        WHY:   The frontend expects an array of freelancer objects to render the table.
+               If the API returns a single object or a string, the UI will break.
+        CHECK: response.json() is a Python list.
+        """
         r = requests.get(BASE_URL)
         body = r.json()
         assert isinstance(body, list), (
@@ -112,7 +147,12 @@ class TestViewRoster:
         )
 
     def test_get_all_contains_only_active_freelancers(self, temp_freelancer):
-        """Every item in the roster list must have the expected fields."""
+        """
+        WHAT:  Verify every object in the list has the required fields.
+        WHY:   Each freelancer record must have at least "id" and "fullName"
+               for the roster to be usable. Missing fields = broken UI.
+        CHECK: Every object in the array contains "id" and "fullName".
+        """
         r = requests.get(BASE_URL)
         freelancers = r.json()
         assert len(freelancers) > 0, "Roster should contain at least the temp_freelancer."
@@ -124,7 +164,13 @@ class TestViewRoster:
             )
 
     def test_get_all_freelancer_linked_to_manager_id_1(self, temp_freelancer):
-        """Every freelancer in the roster must be linked to manager ID 1."""
+        """
+        WHAT:  Verify every freelancer in the roster is linked to manager ID 1.
+        WHY:   The app hardcodes manager ID 1 during creation. If the manager
+               field is null or wrong, the "View Freelancer" page will fail to
+               load for the admin.
+        CHECK: Every freelancer has manager.id == 1.
+        """
         r = requests.get(BASE_URL)
         for fl in r.json():
             manager = fl.get("manager")
@@ -139,22 +185,30 @@ class TestViewRoster:
 
 
 # ===========================================================================
-# TC-CRUD-03  Search by ID
+# TC-CRUD-03  Search by ID (get single freelancer)
 # ===========================================================================
 
 @pytest.mark.crud
 class TestGetFreelancerById:
-    """GET /api/freelancer/{id}"""
+    """GET /api/freelancer/{id} — returns a single freelancer by their ID."""
 
     def test_get_by_id_returns_200(self, live_freelancer):
-        """GET /api/freelancer/{id} must return 200 for a valid ID."""
+        """
+        WHAT:  Use the ID of a known freelancer to fetch their record.
+        WHY:   Fetching a valid ID must return 200.
+        CHECK: response.status_code == 200
+        """
         r = requests.get(f"{BASE_URL}/{live_freelancer['id']}")
         assert r.status_code == 200, (
             f"[BUG] Expected 200, got {r.status_code}. Body: {r.text}"
         )
 
     def test_get_by_id_returns_correct_freelancer(self, live_freelancer):
-        """GET /api/freelancer/{id} must return the freelancer with matching data."""
+        """
+        WHAT:  Fetch a freelancer by ID and verify the returned data matches.
+        WHY:   The API must return the CORRECT freelancer, not a random one.
+        CHECK: response.id matches the requested ID, and fullName matches.
+        """
         fid = live_freelancer["id"]
         payload = live_freelancer["payload"]
         r = requests.get(f"{BASE_URL}/{fid}")
@@ -168,7 +222,12 @@ class TestGetFreelancerById:
         )
 
     def test_get_by_id_returns_correct_email(self, live_freelancer):
-        """GET /api/freelancer/{id} must return the correct email in nested user."""
+        """
+        WHAT:  Fetch a freelancer and verify their nested user.email matches.
+        WHY:   The email is inside the nested "user" object. If the relationship
+               between Freelancer and User is broken, the email won't match.
+        CHECK: response.user.email == the email we sent during creation.
+        """
         fid = live_freelancer["id"]
         payload = live_freelancer["payload"]
         r = requests.get(f"{BASE_URL}/{fid}")
@@ -185,10 +244,14 @@ class TestGetFreelancerById:
 
 @pytest.mark.crud
 class TestUpdateFreelancer:
-    """PUT /api/freelancer/{id}"""
+    """PUT /api/freelancer/{id} — update a freelancer's details."""
 
     def test_update_returns_200(self, live_freelancer):
-        """PUT /api/freelancer/{id} must return HTTP 200."""
+        """
+        WHAT:  Send a PUT request with a changed title field.
+        WHY:   A valid update must return 200 (OK).
+        CHECK: response.status_code == 200
+        """
         fid = live_freelancer["id"]
         payload = {**live_freelancer["payload"], "title": "Senior QA Engineer"}
         r = requests.put(f"{BASE_URL}/{fid}", json=payload)
@@ -197,7 +260,12 @@ class TestUpdateFreelancer:
         )
 
     def test_update_title_partial_update(self, live_freelancer):
-        """PUT with only title changed must update title and preserve other fields."""
+        """
+        WHAT:  Change ONLY the title field via PUT.
+        WHY:   A partial update should modify only the title and leave all
+               other fields (fullName, contactNumber, etc.) unchanged.
+        CHECK: title == new value AND fullName == original value (unchanged).
+        """
         fid = live_freelancer["id"]
         original_payload = live_freelancer["payload"]
         update_payload = {**original_payload, "title": "Lead QA Engineer"}
@@ -212,7 +280,11 @@ class TestUpdateFreelancer:
         )
 
     def test_update_contact_number_partial_update(self, live_freelancer):
-        """PUT with only contactNumber changed must update that field."""
+        """
+        WHAT:  Change ONLY the contactNumber field via PUT.
+        WHY:   Same as above — only the targeted field should change.
+        CHECK: contactNumber == new value.
+        """
         fid = live_freelancer["id"]
         update_payload = {**live_freelancer["payload"], "contactNumber": "0779999999"}
         r = requests.put(f"{BASE_URL}/{fid}", json=update_payload)
@@ -223,7 +295,12 @@ class TestUpdateFreelancer:
         )
 
     def test_update_returns_updated_freelancer_body(self, live_freelancer):
-        """PUT response body must reflect the updated state."""
+        """
+        WHAT:  Verify the PUT response body contains the updated freelancer.
+        WHY:   After an update, the API should return the full updated object
+               so the frontend can refresh its state without a second GET call.
+        CHECK: Response body contains "id" and "fullName" fields.
+        """
         fid = live_freelancer["id"]
         update_payload = {**live_freelancer["payload"], "title": "Updated Title"}
         r = requests.put(f"{BASE_URL}/{fid}", json=update_payload)
@@ -238,10 +315,14 @@ class TestUpdateFreelancer:
 
 @pytest.mark.crud
 class TestDeleteFreelancer:
-    """DELETE /api/freelancer/{id}"""
+    """DELETE /api/freelancer/{id} — remove a freelancer from the system."""
 
     def test_delete_returns_200(self):
-        """DELETE /api/freelancer/{id} must return HTTP 200."""
+        """
+        WHAT:  Create a freelancer, then DELETE it by ID.
+        WHY:   A successful deletion must return 200 (OK).
+        CHECK: response.status_code == 200
+        """
         payload = make_payload()
         r_create = requests.post(f"{BASE_URL}/create", json=payload)
         assert r_create.status_code == 201, "Pre-condition failed: cannot create freelancer."
@@ -255,7 +336,12 @@ class TestDeleteFreelancer:
         )
 
     def test_delete_removes_freelancer_from_roster(self):
-        """After DELETE, the freelancer must no longer appear in GET /api/freelancer."""
+        """
+        WHAT:  Delete a freelancer, then check if they still appear in GET /api/freelancer.
+        WHY:   After deletion, the freelancer must be gone from the roster list.
+               If they still show up, the delete didn't work properly.
+        CHECK: Searching the roster by email returns None (not found).
+        """
         payload = make_payload()
         r_create = requests.post(f"{BASE_URL}/create", json=payload)
         assert r_create.status_code == 201
@@ -264,14 +350,19 @@ class TestDeleteFreelancer:
 
         requests.delete(f"{BASE_URL}/{fid}")
 
-        # Verify removed from roster
         fl_after = find_freelancer_by_email(payload["email"])
         assert fl_after is None, (
             f"[BUG] Freelancer (id={fid}) still appears in roster after DELETE."
         )
 
     def test_delete_makes_get_by_id_return_non_200(self):
-        """After DELETE, GET /api/freelancer/{id} should NOT return 200."""
+        """
+        WHAT:  Delete a freelancer, then try to GET them by ID.
+        WHY:   Fetching a deleted freelancer should return a non-200 status
+               (ideally 404) to indicate the resource no longer exists.
+        CHECK: GET /api/freelancer/{deleted_id} status_code != 200
+               (NOTE: this is a soft check — see test_02 for the strict 404 assertion)
+        """
         payload = make_payload()
         r_create = requests.post(f"{BASE_URL}/create", json=payload)
         assert r_create.status_code == 201
