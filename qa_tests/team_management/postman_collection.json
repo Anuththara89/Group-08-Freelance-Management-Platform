@@ -1,0 +1,1769 @@
+{
+  "info": {
+    "_postman_id": "team-mgmt-freelancer-qa-v1",
+    "name": "Team Management — Freelancer API QA",
+    "description": "Full QA test suite for the Freelancer Management API.\n\nBase URL: http://localhost:8080/api/freelancer\n\nConverted from pytest suites:\n  • test_01_crud.py        — Core CRUD lifecycle\n  • test_02_edge_cases.py  — Boundary & validation tests\n  • test_03_integrity.py   — Cascade delete, manager linkage, password security\n\nRun all folders IN ORDER with the Postman Collection Runner.\nEnsure the Spring Boot backend is running before executing.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl",        "value": "http://localhost:8080/api/freelancer", "type": "string" },
+    { "key": "liveId",         "value": "", "type": "string" },
+    { "key": "liveEmail",      "value": "", "type": "string" },
+    { "key": "liveFullName",   "value": "", "type": "string" },
+    { "key": "createPassword", "value": "", "type": "string" },
+    { "key": "tempId",         "value": "", "type": "string" },
+    { "key": "tempEmail",      "value": "", "type": "string" },
+    { "key": "tempFullName",   "value": "", "type": "string" },
+    { "key": "_requestBody",   "value": "{}", "type": "string" },
+    { "key": "_updateBody",    "value": "{}", "type": "string" },
+    { "key": "_email",         "value": "", "type": "string" },
+    { "key": "_fullName",      "value": "", "type": "string" }
+  ],
+  "item": [
+
+    {
+      "name": "01 — CRUD",
+      "description": "Core CRUD lifecycle tests. Maps to test_01_crud.py.",
+      "item": [
+
+        {
+          "name": "[Setup] Create Live Freelancer",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "var s = Math.random().toString(36).substring(2, 10);",
+                  "pm.collectionVariables.set('_email', 'qa.' + s + '@testdomain.com');",
+                  "pm.collectionVariables.set('_fullName', 'QA Tester ' + s);",
+                  "pm.collectionVariables.set('_requestBody', JSON.stringify({",
+                  "  email: 'qa.' + s + '@testdomain.com',",
+                  "  fullName: 'QA Tester ' + s,",
+                  "  title: 'QA Engineer',",
+                  "  contactNumber: '0771234567',",
+                  "  salary: 4500.00,",
+                  "  status: 'Active',",
+                  "  driveLink: 'https://drive.google.com/qa-test'",
+                  "}));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[Setup] Create returns 201', function() { pm.response.to.have.status(201); });",
+                  "if (pm.response.code === 201) {",
+                  "  var body = pm.response.json();",
+                  "  pm.collectionVariables.set('liveEmail', pm.collectionVariables.get('_email'));",
+                  "  pm.collectionVariables.set('liveFullName', pm.collectionVariables.get('_fullName'));",
+                  "  pm.collectionVariables.set('createPassword', body.password || '');",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{{_requestBody}}", "options": { "raw": { "language": "json" } } },
+            "url": "{{baseUrl}}/create"
+          }
+        },
+
+        {
+          "name": "[Setup] Resolve Freelancer ID",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[Setup] GET list returns 200', function() { pm.response.to.have.status(200); });",
+                  "var email = pm.collectionVariables.get('liveEmail');",
+                  "var fl = pm.response.json().find(function(f) { return f.user && f.user.email === email; });",
+                  "pm.test('[Setup] Freelancer found by email', function() { pm.expect(fl).to.not.be.undefined; });",
+                  "if (fl) { pm.collectionVariables.set('liveId', String(fl.id)); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}"
+          }
+        },
+
+        {
+          "name": "TC-CRUD-01: Create Member",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "var s = Math.random().toString(36).substring(2, 10);",
+                  "pm.collectionVariables.set('_email', 'qa.' + s + '@testdomain.com');",
+                  "pm.collectionVariables.set('_fullName', 'QA Tester ' + s);",
+                  "pm.collectionVariables.set('_requestBody', JSON.stringify({",
+                  "  email: 'qa.' + s + '@testdomain.com',",
+                  "  fullName: 'QA Tester ' + s,",
+                  "  title: 'QA Engineer',",
+                  "  contactNumber: '0771234567',",
+                  "  salary: 4500.00,",
+                  "  status: 'Active',",
+                  "  driveLink: 'https://drive.google.com/qa-test'",
+                  "}));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-CRUD-01a: Returns 201 Created', function() { pm.response.to.have.status(201); });",
+                  "if (pm.response.code === 201) {",
+                  "  var body = pm.response.json();",
+                  "  var sentName  = pm.collectionVariables.get('_fullName');",
+                  "  var sentEmail = pm.collectionVariables.get('_email');",
+                  "  pm.test('TC-CRUD-01b: memberName present and matches fullName', function() {",
+                  "    pm.expect(body).to.have.property('memberName');",
+                  "    pm.expect(body.memberName).to.equal(sentName);",
+                  "  });",
+                  "  pm.test('TC-CRUD-01c: email present and matches input', function() {",
+                  "    pm.expect(body).to.have.property('email');",
+                  "    pm.expect(body.email).to.equal(sentEmail);",
+                  "  });",
+                  "  pm.test('TC-CRUD-01d: Auto-generated password is exactly 12 characters', function() {",
+                  "    pm.expect(body).to.have.property('password');",
+                  "    pm.expect(body.password.length).to.equal(12);",
+                  "  });",
+                  "  pm.test('TC-CRUD-01e: Password is plain text (not a BCrypt hash)', function() {",
+                  "    var pwd = body.password || '';",
+                  "    pm.expect(pwd).to.not.match(/^\\$2[ab]\\$/);",
+                  "  });",
+                  "  // Async cleanup — delete this temp freelancer",
+                  "  var email = sentEmail;",
+                  "  var base  = pm.collectionVariables.get('baseUrl');",
+                  "  pm.sendRequest({ url: base, method: 'GET' }, function(err, resp) {",
+                  "    if (!err && resp && resp.code === 200) {",
+                  "      var fl = resp.json().find(function(f) { return f.user && f.user.email === email; });",
+                  "      if (fl) { pm.sendRequest({ url: base + '/' + fl.id, method: 'DELETE' }, function() {}); }",
+                  "    }",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{{_requestBody}}", "options": { "raw": { "language": "json" } } },
+            "url": "{{baseUrl}}/create",
+            "description": "POST /api/freelancer/create with a valid unique payload.\nAsserts: 201, memberName correct, email correct, password 12 chars, password not BCrypt."
+          }
+        },
+
+        {
+          "name": "TC-CRUD-02: View Roster",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-CRUD-02a: Returns 200 OK', function() { pm.response.to.have.status(200); });",
+                  "pm.test('TC-CRUD-02b: Response body is a JSON array', function() {",
+                  "  pm.expect(pm.response.json()).to.be.an('array');",
+                  "});",
+                  "pm.test('TC-CRUD-02c: Every record has id and fullName fields', function() {",
+                  "  var list = pm.response.json();",
+                  "  pm.expect(list.length).to.be.greaterThan(0);",
+                  "  list.forEach(function(fl) {",
+                  "    pm.expect(fl, JSON.stringify(fl)).to.have.property('id');",
+                  "    pm.expect(fl, JSON.stringify(fl)).to.have.property('fullName');",
+                  "  });",
+                  "});",
+                  "pm.test('TC-CRUD-02d: Every freelancer is linked to manager.id == 1', function() {",
+                  "  pm.response.json().forEach(function(fl) {",
+                  "    pm.expect(fl.manager, '[BUG] manager null for id=' + fl.id).to.not.be.null;",
+                  "    pm.expect(fl.manager, '[BUG] manager undefined for id=' + fl.id).to.not.be.undefined;",
+                  "    pm.expect(fl.manager.id, '[BUG] Wrong manager id for freelancer id=' + fl.id).to.equal(1);",
+                  "  });",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}",
+            "description": "GET /api/freelancer — full roster.\nAsserts: 200, array, each record has id+fullName, each has manager.id==1."
+          }
+        },
+
+        {
+          "name": "TC-CRUD-03: Get Freelancer by ID",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-CRUD-03a: Returns 200 OK', function() { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "  var body        = pm.response.json();",
+                  "  var liveId      = pm.collectionVariables.get('liveId');",
+                  "  var liveFullName= pm.collectionVariables.get('liveFullName');",
+                  "  var liveEmail   = pm.collectionVariables.get('liveEmail');",
+                  "  pm.test('TC-CRUD-03b: Returned id matches requested id', function() {",
+                  "    pm.expect(String(body.id)).to.equal(liveId);",
+                  "  });",
+                  "  pm.test('TC-CRUD-03b: Returned fullName matches', function() {",
+                  "    pm.expect(body.fullName).to.equal(liveFullName);",
+                  "  });",
+                  "  pm.test('TC-CRUD-03c: Nested user.email matches the creation email', function() {",
+                  "    pm.expect(body.user, '[BUG] user object missing').to.not.be.undefined;",
+                  "    pm.expect(body.user.email).to.equal(liveEmail);",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/{{liveId}}",
+            "description": "GET /api/freelancer/{id} for a known freelancer.\nAsserts: 200, id matches, fullName matches, user.email matches."
+          }
+        },
+
+        {
+          "name": "TC-CRUD-04: Update Freelancer",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "pm.collectionVariables.set('_updateBody', JSON.stringify({",
+                  "  email:         pm.collectionVariables.get('liveEmail'),",
+                  "  fullName:      pm.collectionVariables.get('liveFullName'),",
+                  "  title:         'Senior QA Engineer',",
+                  "  contactNumber: '0779999999',",
+                  "  salary:        5000.00,",
+                  "  status:        'Active',",
+                  "  driveLink:     'https://drive.google.com/qa-test'",
+                  "}));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-CRUD-04a: Returns 200 OK', function() { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "  var body = pm.response.json();",
+                  "  pm.test('TC-CRUD-04b: title updated to new value', function() {",
+                  "    pm.expect(body.title).to.equal('Senior QA Engineer');",
+                  "  });",
+                  "  pm.test('TC-CRUD-04c: contactNumber updated to new value', function() {",
+                  "    pm.expect(body.contactNumber).to.equal('0779999999');",
+                  "  });",
+                  "  pm.test('TC-CRUD-04d: fullName unchanged (partial-update behaviour)', function() {",
+                  "    pm.expect(body.fullName).to.equal(pm.collectionVariables.get('liveFullName'));",
+                  "  });",
+                  "  pm.test('TC-CRUD-04e: Response body contains id and fullName fields', function() {",
+                  "    pm.expect(body).to.have.property('id');",
+                  "    pm.expect(body).to.have.property('fullName');",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{{_updateBody}}", "options": { "raw": { "language": "json" } } },
+            "url": "{{baseUrl}}/{{liveId}}",
+            "description": "PUT /api/freelancer/{id}.\nAsserts: 200, title updated, contactNumber updated, fullName unchanged, response has id+fullName."
+          }
+        },
+
+        {
+          "name": "TC-CRUD-05: Delete Freelancer",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-CRUD-05a: Delete returns 200 OK', function() { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "url": "{{baseUrl}}/{{liveId}}",
+            "description": "DELETE /api/freelancer/{id}.\nAsserts: 200."
+          }
+        },
+
+        {
+          "name": "TC-CRUD-05b: Verify Deleted — GET Should Be Non-200",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-CRUD-05b: GET after DELETE does not return 200', function() {",
+                  "  pm.expect(pm.response.code).to.not.equal(200,",
+                  "    '[BUG] GET still returns 200 after DELETE — record was not removed.');",
+                  "});",
+                  "pm.test('TC-CRUD-05c: GET after DELETE returns 404 (strict)', function() {",
+                  "  pm.response.to.have.status(404);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/{{liveId}}",
+            "description": "GET /api/freelancer/{deleted_id}.\nAsserts: status != 200 (ideally 404)."
+          }
+        }
+
+      ]
+    },
+
+    {
+      "name": "02 — Edge Cases",
+      "description": "Boundary and error-handling tests. Maps to test_02_edge_cases.py.",
+      "item": [
+
+        {
+          "name": "[Setup] Create Live Freelancer",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "var s = Math.random().toString(36).substring(2, 10);",
+                  "pm.collectionVariables.set('_email', 'qa.' + s + '@testdomain.com');",
+                  "pm.collectionVariables.set('_fullName', 'QA Tester ' + s);",
+                  "pm.collectionVariables.set('_requestBody', JSON.stringify({",
+                  "  email: 'qa.' + s + '@testdomain.com',",
+                  "  fullName: 'QA Tester ' + s,",
+                  "  title: 'QA Engineer', contactNumber: '0771234567',",
+                  "  salary: 4500.00, status: 'Active', driveLink: 'https://drive.google.com/qa-test'",
+                  "}));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[Setup] Create returns 201', function() { pm.response.to.have.status(201); });",
+                  "if (pm.response.code === 201) {",
+                  "  pm.collectionVariables.set('liveEmail',    pm.collectionVariables.get('_email'));",
+                  "  pm.collectionVariables.set('liveFullName', pm.collectionVariables.get('_fullName'));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{{_requestBody}}", "options": { "raw": { "language": "json" } } },
+            "url": "{{baseUrl}}/create"
+          }
+        },
+
+        {
+          "name": "[Setup] Resolve Freelancer ID",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var email = pm.collectionVariables.get('liveEmail');",
+                  "var fl = pm.response.json().find(function(f) { return f.user && f.user.email === email; });",
+                  "pm.test('[Setup] Found freelancer by email', function() { pm.expect(fl).to.not.be.undefined; });",
+                  "if (fl) { pm.collectionVariables.set('liveId', String(fl.id)); }"
+                ]
+              }
+            }
+          ],
+          "request": { "method": "GET", "url": "{{baseUrl}}" }
+        },
+
+        {
+          "name": "TC-EDGE-01: Duplicate fullName on Create",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "var liveEmail    = pm.collectionVariables.get('liveEmail');",
+                  "var liveFullName = pm.collectionVariables.get('liveFullName');",
+                  "pm.collectionVariables.set('_requestBody', JSON.stringify({",
+                  "  email:    'dup.' + liveEmail,",
+                  "  fullName: liveFullName,",
+                  "  title: 'QA Engineer', contactNumber: '0771234567',",
+                  "  salary: 4500.00, status: 'Active', driveLink: 'https://drive.google.com/qa-test'",
+                  "}));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-EDGE-01a: Duplicate fullName returns 400 (not 201)', function() {",
+                  "  pm.expect(pm.response.code).to.not.equal(201,",
+                  "    '[BUG] Duplicate fullName was accepted — duplicate prevention is BROKEN.');",
+                  "  pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test('TC-EDGE-01b: Error response contains descriptive message', function() {",
+                  "  var body = pm.response.text().toLowerCase();",
+                  "  pm.expect(body).to.match(/already exists|duplicate|freelancer/,",
+                  "    '[BUG] Error body for duplicate fullName has no descriptive message. Got: ' + pm.response.text());",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{{_requestBody}}", "options": { "raw": { "language": "json" } } },
+            "url": "{{baseUrl}}/create",
+            "description": "POST /api/freelancer/create with an existing fullName (different email).\nAsserts: 400, error message contains 'already exists'/'duplicate'."
+          }
+        },
+
+        {
+          "name": "[Setup] Create Second Freelancer (for conflict test)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "var s = Math.random().toString(36).substring(2, 10);",
+                  "pm.collectionVariables.set('tempEmail',    'qa.' + s + '@testdomain.com');",
+                  "pm.collectionVariables.set('tempFullName', 'QA Tester ' + s);",
+                  "pm.collectionVariables.set('_requestBody', JSON.stringify({",
+                  "  email: 'qa.' + s + '@testdomain.com', fullName: 'QA Tester ' + s,",
+                  "  title: 'QA Engineer', contactNumber: '0771234567',",
+                  "  salary: 4500.00, status: 'Active', driveLink: 'https://drive.google.com/qa-test'",
+                  "}));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[Setup] Second freelancer created (201)', function() { pm.response.to.have.status(201); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{{_requestBody}}", "options": { "raw": { "language": "json" } } },
+            "url": "{{baseUrl}}/create"
+          }
+        },
+
+        {
+          "name": "[Setup] Resolve Second Freelancer ID",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var email = pm.collectionVariables.get('tempEmail');",
+                  "var fl = pm.response.json().find(function(f) { return f.user && f.user.email === email; });",
+                  "pm.test('[Setup] Second freelancer found', function() { pm.expect(fl).to.not.be.undefined; });",
+                  "if (fl) { pm.collectionVariables.set('tempId', String(fl.id)); }"
+                ]
+              }
+            }
+          ],
+          "request": { "method": "GET", "url": "{{baseUrl}}" }
+        },
+
+        {
+          "name": "TC-EDGE-02: Update to Existing fullName → 400",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "pm.collectionVariables.set('_updateBody', JSON.stringify({",
+                  "  email:    pm.collectionVariables.get('tempEmail'),",
+                  "  fullName: pm.collectionVariables.get('liveFullName'),",
+                  "  title: 'QA Engineer', contactNumber: '0771234567',",
+                  "  salary: 4500.00, status: 'Active', driveLink: 'https://drive.google.com/qa-test'",
+                  "}));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-EDGE-02: Renaming to existing fullName returns 400', function() {",
+                  "  pm.expect(pm.response.code).to.not.equal(200,",
+                  "    '[BUG] Renaming to an existing fullName was ACCEPTED — conflict check is BROKEN.');",
+                  "  pm.response.to.have.status(400);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{{_updateBody}}", "options": { "raw": { "language": "json" } } },
+            "url": "{{baseUrl}}/{{tempId}}",
+            "description": "PUT /api/freelancer/{secondId} attempting to rename to the live freelancer's fullName.\nAsserts: 400."
+          }
+        },
+
+        {
+          "name": "[Teardown] Delete Second Freelancer",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[Teardown] Second freelancer deleted (200)', function() { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ],
+          "request": { "method": "DELETE", "url": "{{baseUrl}}/{{tempId}}" }
+        },
+
+        {
+          "name": "TC-EDGE-03a: GET Non-existent ID → 404",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-EDGE-03a: GET /999999 returns 404', function() {",
+                  "  pm.response.to.have.status(404);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/999999",
+            "description": "GET with a non-existent ID. Asserts: 404."
+          }
+        },
+
+        {
+          "name": "TC-EDGE-03b: DELETE Non-existent ID → 404",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-EDGE-03b: DELETE /999999 returns 404', function() {",
+                  "  pm.response.to.have.status(404);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": { "method": "DELETE", "url": "{{baseUrl}}/999999" }
+        },
+
+        {
+          "name": "TC-EDGE-03c: PUT Non-existent ID → 404",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "pm.collectionVariables.set('_requestBody', JSON.stringify({",
+                  "  email: 'ghost@testdomain.com', fullName: 'Ghost Freelancer',",
+                  "  title: 'QA Engineer', contactNumber: '0771234567',",
+                  "  salary: 4500.00, status: 'Active', driveLink: 'https://drive.google.com/qa-test'",
+                  "}));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-EDGE-03c: PUT /999999 returns 404', function() {",
+                  "  pm.response.to.have.status(404);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{{_requestBody}}", "options": { "raw": { "language": "json" } } },
+            "url": "{{baseUrl}}/999999"
+          }
+        },
+
+        {
+          "name": "TC-EDGE-03d: Error Body Must Not Expose Java Stack Trace",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-EDGE-03d: Error body does not contain Java stack trace', function() {",
+                  "  pm.expect(pm.response.text().toLowerCase()).to.not.include('at com.freelance',",
+                  "    '[BUG] Error response exposes internal Java stack trace — security / UX issue.');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": { "method": "GET", "url": "{{baseUrl}}/999999" }
+        },
+
+        {
+          "name": "TC-EDGE-04a: Create Without Email Field → 400",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "var s = Math.random().toString(36).substring(2, 10);",
+                  "pm.collectionVariables.set('_requestBody', JSON.stringify({",
+                  "  fullName: 'QA Tester ' + s,",
+                  "  title: 'QA Engineer', contactNumber: '0771234567',",
+                  "  salary: 4500.00, status: 'Active', driveLink: 'https://drive.google.com/qa-test'",
+                  "}));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-EDGE-04a: Missing email field returns 400', function() {",
+                  "  pm.expect(pm.response.code).to.not.equal(201,",
+                  "    '[BUG] Freelancer created without email — NOT NULL constraint not enforced.');",
+                  "  pm.response.to.have.status(400);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{{_requestBody}}", "options": { "raw": { "language": "json" } } },
+            "url": "{{baseUrl}}/create"
+          }
+        },
+
+        {
+          "name": "TC-EDGE-04b: Create With null Email → 400",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "var s = Math.random().toString(36).substring(2, 10);",
+                  "pm.collectionVariables.set('_requestBody', JSON.stringify({",
+                  "  email: null, fullName: 'QA Tester ' + s,",
+                  "  title: 'QA Engineer', contactNumber: '0771234567',",
+                  "  salary: 4500.00, status: 'Active', driveLink: 'https://drive.google.com/qa-test'",
+                  "}));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-EDGE-04b: null email returns 400', function() {",
+                  "  pm.expect(pm.response.code).to.not.equal(201, '[BUG] Freelancer created with null email.');",
+                  "  pm.response.to.have.status(400);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{{_requestBody}}", "options": { "raw": { "language": "json" } } },
+            "url": "{{baseUrl}}/create"
+          }
+        },
+
+        {
+          "name": "TC-EDGE-04c: Create With Empty String Email → 400",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "var s = Math.random().toString(36).substring(2, 10);",
+                  "pm.collectionVariables.set('_email', '');",
+                  "pm.collectionVariables.set('_requestBody', JSON.stringify({",
+                  "  email: '', fullName: 'QA Tester ' + s,",
+                  "  title: 'QA Engineer', contactNumber: '0771234567',",
+                  "  salary: 4500.00, status: 'Active', driveLink: 'https://drive.google.com/qa-test'",
+                  "}));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-EDGE-04c: Empty string email returns 400', function() {",
+                  "  pm.expect(pm.response.code).to.not.equal(201, '[BUG] Freelancer created with empty string email.');",
+                  "  pm.response.to.have.status(400);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{{_requestBody}}", "options": { "raw": { "language": "json" } } },
+            "url": "{{baseUrl}}/create"
+          }
+        },
+
+        {
+          "name": "TC-EDGE-05a: Negative Salary → 400",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "var s = Math.random().toString(36).substring(2, 10);",
+                  "pm.collectionVariables.set('_email', 'qa.' + s + '@testdomain.com');",
+                  "pm.collectionVariables.set('_requestBody', JSON.stringify({",
+                  "  email: 'qa.' + s + '@testdomain.com', fullName: 'QA Tester ' + s,",
+                  "  title: 'QA Engineer', contactNumber: '0771234567',",
+                  "  salary: -1000.00, status: 'Active', driveLink: 'https://drive.google.com/qa-test'",
+                  "}));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-EDGE-05a: Negative salary returns 400', function() {",
+                  "  pm.response.to.have.status(400);",
+                  "});",
+                  "// Best-effort cleanup if server accepted it (known bug)",
+                  "if (pm.response.code === 201) {",
+                  "  var email = pm.collectionVariables.get('_email');",
+                  "  var base  = pm.collectionVariables.get('baseUrl');",
+                  "  pm.sendRequest({ url: base, method: 'GET' }, function(err, resp) {",
+                  "    if (!err && resp && resp.code === 200) {",
+                  "      var fl = resp.json().find(function(f) { return f.user && f.user.email === email; });",
+                  "      if (fl) { pm.sendRequest({ url: base + '/' + fl.id, method: 'DELETE' }, function() {}); }",
+                  "    }",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{{_requestBody}}", "options": { "raw": { "language": "json" } } },
+            "url": "{{baseUrl}}/create",
+            "description": "POST with salary: -1000. Asserts: 400 (negative salary must be rejected)."
+          }
+        },
+
+        {
+          "name": "TC-EDGE-05b: Zero Salary → 201 (valid)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "var s = Math.random().toString(36).substring(2, 10);",
+                  "pm.collectionVariables.set('_email', 'qa.' + s + '@testdomain.com');",
+                  "pm.collectionVariables.set('_requestBody', JSON.stringify({",
+                  "  email: 'qa.' + s + '@testdomain.com', fullName: 'QA Tester ' + s,",
+                  "  title: 'QA Engineer', contactNumber: '0771234567',",
+                  "  salary: 0, status: 'Active', driveLink: 'https://drive.google.com/qa-test'",
+                  "}));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-EDGE-05b: Zero salary is accepted (returns 201)', function() {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "// Cleanup",
+                  "var email = pm.collectionVariables.get('_email');",
+                  "var base  = pm.collectionVariables.get('baseUrl');",
+                  "pm.sendRequest({ url: base, method: 'GET' }, function(err, resp) {",
+                  "  if (!err && resp && resp.code === 200) {",
+                  "    var fl = resp.json().find(function(f) { return f.user && f.user.email === email; });",
+                  "    if (fl) { pm.sendRequest({ url: base + '/' + fl.id, method: 'DELETE' }, function() {}); }",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{{_requestBody}}", "options": { "raw": { "language": "json" } } },
+            "url": "{{baseUrl}}/create"
+          }
+        },
+
+        {
+          "name": "TC-EDGE-05c: String Salary → 400 (malformed JSON type)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-EDGE-05c: Non-numeric salary string returns 400', function() {",
+                  "  pm.response.to.have.status(400);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"email\":\"badsalary@testdomain.com\",\"fullName\":\"BadSalary Tester\",\"title\":\"QA Engineer\",\"contactNumber\":\"0771234567\",\"salary\":\"not-a-number\",\"status\":\"Active\",\"driveLink\":\"https://drive.google.com/qa-test\"}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/create",
+            "description": "POST with salary as a string. Jackson deserialization should return 400."
+          }
+        },
+
+        {
+          "name": "[Setup] Create Freelancer for Re-reg Email Test",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "var s = Math.random().toString(36).substring(2, 10);",
+                  "pm.collectionVariables.set('tempEmail',    'qa.' + s + '@testdomain.com');",
+                  "pm.collectionVariables.set('tempFullName', 'QA Tester ' + s);",
+                  "pm.collectionVariables.set('_requestBody', JSON.stringify({",
+                  "  email: 'qa.' + s + '@testdomain.com', fullName: 'QA Tester ' + s,",
+                  "  title: 'QA Engineer', contactNumber: '0771234567',",
+                  "  salary: 4500.00, status: 'Active', driveLink: 'https://drive.google.com/qa-test'",
+                  "}));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[Setup] Re-reg setup create returns 201', function() { pm.response.to.have.status(201); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{{_requestBody}}", "options": { "raw": { "language": "json" } } },
+            "url": "{{baseUrl}}/create"
+          }
+        },
+
+        {
+          "name": "[Setup] Resolve Re-reg Freelancer ID",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var email = pm.collectionVariables.get('tempEmail');",
+                  "var fl = pm.response.json().find(function(f) { return f.user && f.user.email === email; });",
+                  "if (fl) { pm.collectionVariables.set('tempId', String(fl.id)); }"
+                ]
+              }
+            }
+          ],
+          "request": { "method": "GET", "url": "{{baseUrl}}" }
+        },
+
+        {
+          "name": "TC-EDGE-06a-1: Delete Freelancer (for re-registration)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-EDGE-06a: Delete returns 200', function() { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ],
+          "request": { "method": "DELETE", "url": "{{baseUrl}}/{{tempId}}" }
+        },
+
+        {
+          "name": "TC-EDGE-06a-2: Re-create With Same Email → 201",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "var origEmail    = pm.collectionVariables.get('tempEmail');",
+                  "var origFullName = pm.collectionVariables.get('tempFullName');",
+                  "pm.collectionVariables.set('_email', origEmail);",
+                  "pm.collectionVariables.set('_requestBody', JSON.stringify({",
+                  "  email: origEmail,",
+                  "  fullName: 'Renewed ' + origFullName,",
+                  "  title: 'QA Engineer', contactNumber: '0771234567',",
+                  "  salary: 4500.00, status: 'Active', driveLink: 'https://drive.google.com/qa-test'",
+                  "}));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-EDGE-06a: Re-registration with same email after DELETE returns 201', function() {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "// Cleanup",
+                  "var email = pm.collectionVariables.get('_email');",
+                  "var base  = pm.collectionVariables.get('baseUrl');",
+                  "pm.sendRequest({ url: base, method: 'GET' }, function(err, resp) {",
+                  "  if (!err && resp && resp.code === 200) {",
+                  "    var fl = resp.json().find(function(f) { return f.user && f.user.email === email; });",
+                  "    if (fl) { pm.sendRequest({ url: base + '/' + fl.id, method: 'DELETE' }, function() {}); }",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{{_requestBody}}", "options": { "raw": { "language": "json" } } },
+            "url": "{{baseUrl}}/create",
+            "description": "Create → Delete → Re-create with the SAME email.\nAsserts: 201 (email unique constraint is freed after delete)."
+          }
+        },
+
+        {
+          "name": "[Setup] Create Freelancer for Re-reg FullName Test",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "var s = Math.random().toString(36).substring(2, 10);",
+                  "pm.collectionVariables.set('tempEmail',    'qa.' + s + '@testdomain.com');",
+                  "pm.collectionVariables.set('tempFullName', 'QA Tester ' + s);",
+                  "pm.collectionVariables.set('_requestBody', JSON.stringify({",
+                  "  email: 'qa.' + s + '@testdomain.com', fullName: 'QA Tester ' + s,",
+                  "  title: 'QA Engineer', contactNumber: '0771234567',",
+                  "  salary: 4500.00, status: 'Active', driveLink: 'https://drive.google.com/qa-test'",
+                  "}));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[Setup] Re-reg name setup create returns 201', function() { pm.response.to.have.status(201); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{{_requestBody}}", "options": { "raw": { "language": "json" } } },
+            "url": "{{baseUrl}}/create"
+          }
+        },
+
+        {
+          "name": "[Setup] Resolve Re-reg FullName Freelancer ID",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var email = pm.collectionVariables.get('tempEmail');",
+                  "var fl = pm.response.json().find(function(f) { return f.user && f.user.email === email; });",
+                  "if (fl) { pm.collectionVariables.set('tempId', String(fl.id)); }"
+                ]
+              }
+            }
+          ],
+          "request": { "method": "GET", "url": "{{baseUrl}}" }
+        },
+
+        {
+          "name": "TC-EDGE-06b-1: Delete Freelancer (for fullName re-reg)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-EDGE-06b: Delete returns 200', function() { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ],
+          "request": { "method": "DELETE", "url": "{{baseUrl}}/{{tempId}}" }
+        },
+
+        {
+          "name": "TC-EDGE-06b-2: Re-create With Same FullName → 201",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "var origEmail    = pm.collectionVariables.get('tempEmail');",
+                  "var origFullName = pm.collectionVariables.get('tempFullName');",
+                  "var s = Math.random().toString(36).substring(2, 10);",
+                  "var newEmail = 'renewed.' + s + '@testdomain.com';",
+                  "pm.collectionVariables.set('_email', newEmail);",
+                  "pm.collectionVariables.set('_requestBody', JSON.stringify({",
+                  "  email: newEmail,",
+                  "  fullName: origFullName,",
+                  "  title: 'QA Engineer', contactNumber: '0771234567',",
+                  "  salary: 4500.00, status: 'Active', driveLink: 'https://drive.google.com/qa-test'",
+                  "}));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-EDGE-06b: Re-registration with same fullName after DELETE returns 201', function() {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "// Cleanup",
+                  "var email = pm.collectionVariables.get('_email');",
+                  "var base  = pm.collectionVariables.get('baseUrl');",
+                  "pm.sendRequest({ url: base, method: 'GET' }, function(err, resp) {",
+                  "  if (!err && resp && resp.code === 200) {",
+                  "    var fl = resp.json().find(function(f) { return f.user && f.user.email === email; });",
+                  "    if (fl) { pm.sendRequest({ url: base + '/' + fl.id, method: 'DELETE' }, function() {}); }",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{{_requestBody}}", "options": { "raw": { "language": "json" } } },
+            "url": "{{baseUrl}}/create",
+            "description": "Create → Delete → Re-create with the SAME fullName (different email).\nAsserts: 201 (fullName unique constraint is freed after delete)."
+          }
+        },
+
+        {
+          "name": "[Teardown] Delete Live Freelancer",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[Teardown] Live freelancer deleted (200)', function() { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ],
+          "request": { "method": "DELETE", "url": "{{baseUrl}}/{{liveId}}" }
+        }
+
+      ]
+    },
+
+    {
+      "name": "03 — Integrity & Security",
+      "description": "Cascade delete, manager linkage, password security. Maps to test_03_integrity.py.",
+      "item": [
+
+        {
+          "name": "[Setup INT-01a] Create Freelancer for Cascade Test",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "var s = Math.random().toString(36).substring(2, 10);",
+                  "pm.collectionVariables.set('tempEmail', 'qa.' + s + '@testdomain.com');",
+                  "pm.collectionVariables.set('_requestBody', JSON.stringify({",
+                  "  email: 'qa.' + s + '@testdomain.com', fullName: 'QA Tester ' + s,",
+                  "  title: 'QA Engineer', contactNumber: '0771234567',",
+                  "  salary: 4500.00, status: 'Active', driveLink: 'https://drive.google.com/qa-test'",
+                  "}));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[Setup] Cascade test create returns 201', function() { pm.response.to.have.status(201); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{{_requestBody}}", "options": { "raw": { "language": "json" } } },
+            "url": "{{baseUrl}}/create"
+          }
+        },
+
+        {
+          "name": "[Setup INT-01a] Resolve Cascade Freelancer ID",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var email = pm.collectionVariables.get('tempEmail');",
+                  "var fl = pm.response.json().find(function(f) { return f.user && f.user.email === email; });",
+                  "pm.test('[Setup] Cascade freelancer found', function() { pm.expect(fl).to.not.be.undefined; });",
+                  "if (fl) { pm.collectionVariables.set('tempId', String(fl.id)); }"
+                ]
+              }
+            }
+          ],
+          "request": { "method": "GET", "url": "{{baseUrl}}" }
+        },
+
+        {
+          "name": "TC-INT-01a-1: Delete Freelancer (cascade trigger)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-INT-01a: Delete returns 200', function() { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ],
+          "request": { "method": "DELETE", "url": "{{baseUrl}}/{{tempId}}" }
+        },
+
+        {
+          "name": "TC-INT-01a-2: GET After Delete → 404 (cascade verified)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-INT-01a: GET deleted id returns 404 — cascade delete confirmed', function() {",
+                  "  pm.response.to.have.status(404);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/{{tempId}}",
+            "description": "After DELETE, GET must return 404. If 200 → cascade delete is broken."
+          }
+        },
+
+        {
+          "name": "[Setup INT-01b] Create Freelancer for Email-Reuse Cascade Test",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "var s = Math.random().toString(36).substring(2, 10);",
+                  "pm.collectionVariables.set('tempEmail',    'qa.' + s + '@testdomain.com');",
+                  "pm.collectionVariables.set('tempFullName', 'QA Tester ' + s);",
+                  "pm.collectionVariables.set('_requestBody', JSON.stringify({",
+                  "  email: 'qa.' + s + '@testdomain.com', fullName: 'QA Tester ' + s,",
+                  "  title: 'QA Engineer', contactNumber: '0771234567',",
+                  "  salary: 4500.00, status: 'Active', driveLink: 'https://drive.google.com/qa-test'",
+                  "}));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[Setup] Email-reuse cascade create returns 201', function() { pm.response.to.have.status(201); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{{_requestBody}}", "options": { "raw": { "language": "json" } } },
+            "url": "{{baseUrl}}/create"
+          }
+        },
+
+        {
+          "name": "[Setup INT-01b] Resolve Email-Reuse Freelancer ID",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var email = pm.collectionVariables.get('tempEmail');",
+                  "var fl = pm.response.json().find(function(f) { return f.user && f.user.email === email; });",
+                  "if (fl) { pm.collectionVariables.set('tempId', String(fl.id)); }"
+                ]
+              }
+            }
+          ],
+          "request": { "method": "GET", "url": "{{baseUrl}}" }
+        },
+
+        {
+          "name": "TC-INT-01b-1: Delete for Email-Reuse Cascade Test",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-INT-01b: Delete returns 200', function() { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ],
+          "request": { "method": "DELETE", "url": "{{baseUrl}}/{{tempId}}" }
+        },
+
+        {
+          "name": "TC-INT-01b-2: Re-create Same Email → 201 (User row cascade-deleted)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "var origEmail    = pm.collectionVariables.get('tempEmail');",
+                  "var origFullName = pm.collectionVariables.get('tempFullName');",
+                  "pm.collectionVariables.set('_email', origEmail);",
+                  "pm.collectionVariables.set('_requestBody', JSON.stringify({",
+                  "  email: origEmail,",
+                  "  fullName: 'Reborn ' + origFullName,",
+                  "  title: 'QA Engineer', contactNumber: '0771234567',",
+                  "  salary: 4500.00, status: 'Active', driveLink: 'https://drive.google.com/qa-test'",
+                  "}));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-INT-01b: Re-create with same email returns 201 — User row was fully removed', function() {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "// Cleanup",
+                  "var email = pm.collectionVariables.get('_email');",
+                  "var base  = pm.collectionVariables.get('baseUrl');",
+                  "pm.sendRequest({ url: base, method: 'GET' }, function(err, resp) {",
+                  "  if (!err && resp && resp.code === 200) {",
+                  "    var fl = resp.json().find(function(f) { return f.user && f.user.email === email; });",
+                  "    if (fl) { pm.sendRequest({ url: base + '/' + fl.id, method: 'DELETE' }, function() {}); }",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{{_requestBody}}", "options": { "raw": { "language": "json" } } },
+            "url": "{{baseUrl}}/create",
+            "description": "If re-creation fails, the User row was NOT deleted — a ghost login exists in the DB."
+          }
+        },
+
+        {
+          "name": "[Setup INT-01c] Create Freelancer for Roster Cascade Test",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "var s = Math.random().toString(36).substring(2, 10);",
+                  "pm.collectionVariables.set('tempEmail', 'qa.' + s + '@testdomain.com');",
+                  "pm.collectionVariables.set('_requestBody', JSON.stringify({",
+                  "  email: 'qa.' + s + '@testdomain.com', fullName: 'QA Tester ' + s,",
+                  "  title: 'QA Engineer', contactNumber: '0771234567',",
+                  "  salary: 4500.00, status: 'Active', driveLink: 'https://drive.google.com/qa-test'",
+                  "}));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[Setup] Roster cascade create returns 201', function() { pm.response.to.have.status(201); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{{_requestBody}}", "options": { "raw": { "language": "json" } } },
+            "url": "{{baseUrl}}/create"
+          }
+        },
+
+        {
+          "name": "[Setup INT-01c] Resolve Roster Cascade Freelancer ID",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var email = pm.collectionVariables.get('tempEmail');",
+                  "var fl = pm.response.json().find(function(f) { return f.user && f.user.email === email; });",
+                  "if (fl) { pm.collectionVariables.set('tempId', String(fl.id)); }"
+                ]
+              }
+            }
+          ],
+          "request": { "method": "GET", "url": "{{baseUrl}}" }
+        },
+
+        {
+          "name": "TC-INT-01c-1: Delete Freelancer (roster check)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-INT-01c: Delete returns 200', function() { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ],
+          "request": { "method": "DELETE", "url": "{{baseUrl}}/{{tempId}}" }
+        },
+
+        {
+          "name": "TC-INT-01c-2: Deleted ID Must Not Appear in Roster",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-INT-01c: GET all returns 200', function() { pm.response.to.have.status(200); });",
+                  "pm.test('TC-INT-01c: Deleted freelancer id not present in roster', function() {",
+                  "  var deletedId = parseInt(pm.collectionVariables.get('tempId'));",
+                  "  var ids = pm.response.json().map(function(f) { return f.id; });",
+                  "  pm.expect(ids).to.not.include(deletedId,",
+                  "    '[BUG] Deleted freelancer id=' + deletedId + ' still appears in the roster.');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}",
+            "description": "After DELETE, the ID must not appear in GET /api/freelancer."
+          }
+        },
+
+        {
+          "name": "[Setup] Create Live Freelancer (for INT-02 & SEC tests)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "var s = Math.random().toString(36).substring(2, 10);",
+                  "pm.collectionVariables.set('_email', 'qa.' + s + '@testdomain.com');",
+                  "pm.collectionVariables.set('_fullName', 'QA Tester ' + s);",
+                  "pm.collectionVariables.set('_requestBody', JSON.stringify({",
+                  "  email: 'qa.' + s + '@testdomain.com', fullName: 'QA Tester ' + s,",
+                  "  title: 'QA Engineer', contactNumber: '0771234567',",
+                  "  salary: 4500.00, status: 'Active', driveLink: 'https://drive.google.com/qa-test'",
+                  "}));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[Setup] Create returns 201', function() { pm.response.to.have.status(201); });",
+                  "if (pm.response.code === 201) {",
+                  "  var body = pm.response.json();",
+                  "  pm.collectionVariables.set('liveEmail',      pm.collectionVariables.get('_email'));",
+                  "  pm.collectionVariables.set('liveFullName',   pm.collectionVariables.get('_fullName'));",
+                  "  pm.collectionVariables.set('createPassword', body.password || '');",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{{_requestBody}}", "options": { "raw": { "language": "json" } } },
+            "url": "{{baseUrl}}/create"
+          }
+        },
+
+        {
+          "name": "[Setup] Resolve Freelancer ID (INT-02 & SEC)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var email = pm.collectionVariables.get('liveEmail');",
+                  "var fl = pm.response.json().find(function(f) { return f.user && f.user.email === email; });",
+                  "pm.test('[Setup] Freelancer found by email', function() { pm.expect(fl).to.not.be.undefined; });",
+                  "if (fl) { pm.collectionVariables.set('liveId', String(fl.id)); }"
+                ]
+              }
+            }
+          ],
+          "request": { "method": "GET", "url": "{{baseUrl}}" }
+        },
+
+        {
+          "name": "TC-INT-02a: Created Freelancer Has manager.id == 1",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-INT-02a: GET by ID returns 200', function() { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "  var body = pm.response.json();",
+                  "  pm.test('TC-INT-02a: manager field is present', function() {",
+                  "    pm.expect(body.manager, '[BUG] manager is null — view freelancer page will fail.').to.not.be.null;",
+                  "    pm.expect(body.manager).to.not.be.undefined;",
+                  "  });",
+                  "  pm.test('TC-INT-02a: manager.id equals 1', function() {",
+                  "    pm.expect(body.manager.id).to.equal(1);",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/{{liveId}}",
+            "description": "GET /api/freelancer/{id}. Asserts manager.id == 1."
+          }
+        },
+
+        {
+          "name": "TC-INT-02b: All Roster Freelancers Have manager.id == 1",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-INT-02b: GET all returns 200', function() { pm.response.to.have.status(200); });",
+                  "pm.test('TC-INT-02b: Every freelancer in roster has manager.id == 1', function() {",
+                  "  var list = pm.response.json();",
+                  "  pm.expect(list.length).to.be.greaterThan(0, 'Roster is empty.');",
+                  "  list.forEach(function(fl) {",
+                  "    pm.expect(fl.manager, '[BUG] manager=null for id=' + fl.id).to.not.be.null;",
+                  "    pm.expect(fl.manager.id, '[BUG] Wrong manager id for id=' + fl.id).to.equal(1);",
+                  "  });",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": { "method": "GET", "url": "{{baseUrl}}" }
+        },
+
+        {
+          "name": "TC-SEC-01a: GET All — No BCrypt Hashes Exposed",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "function scanForBcrypt(obj, path) {",
+                  "  if (typeof obj === 'object' && obj !== null) {",
+                  "    Object.keys(obj).forEach(function(k) {",
+                  "      var val = obj[k];",
+                  "      if (k === 'password' && typeof val === 'string' && val.startsWith('$2')) {",
+                  "        pm.test('TC-SEC-01a: [BUG][SECURITY] BCrypt hash exposed at ' + path + '.' + k, function() {",
+                  "          pm.expect(val, 'BCrypt hash must not be sent to frontend').to.not.match(/^\\$2/);",
+                  "        });",
+                  "      } else if (typeof val === 'object') {",
+                  "        scanForBcrypt(val, path + '.' + k);",
+                  "      }",
+                  "    });",
+                  "  } else if (Array.isArray(obj)) {",
+                  "    obj.forEach(function(item, i) { scanForBcrypt(item, path + '[' + i + ']'); });",
+                  "  }",
+                  "}",
+                  "pm.test('TC-SEC-01a: GET all returns 200', function() { pm.response.to.have.status(200); });",
+                  "scanForBcrypt(pm.response.json(), 'response');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}",
+            "description": "Scans all nested objects for BCrypt hash values ($2a$, $2b$)."
+          }
+        },
+
+        {
+          "name": "TC-SEC-01b: GET by ID — No BCrypt Hash Exposed",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-SEC-01b: GET by id returns 200', function() { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "  function scanForBcrypt(obj, path) {",
+                  "    if (typeof obj === 'object' && obj !== null) {",
+                  "      Object.keys(obj).forEach(function(k) {",
+                  "        var val = obj[k];",
+                  "        if (k === 'password' && typeof val === 'string' && val.match(/^\\$2/)) {",
+                  "          pm.test('[BUG][SECURITY] BCrypt hash exposed at ' + path + '.' + k, function() {",
+                  "            pm.expect(false, 'Password hash must not be exposed').to.be.true;",
+                  "          });",
+                  "        } else if (typeof val === 'object') { scanForBcrypt(val, path + '.' + k); }",
+                  "      });",
+                  "    }",
+                  "  }",
+                  "  scanForBcrypt(pm.response.json(), 'response');",
+                  "  pm.test('TC-SEC-01b: No BCrypt hash in GET by id response', function() { pm.expect(true).to.be.true; });",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": { "method": "GET", "url": "{{baseUrl}}/{{liveId}}" }
+        },
+
+        {
+          "name": "TC-SEC-01c: user Object Must NOT Have password Field",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-SEC-01c: GET all returns 200', function() { pm.response.to.have.status(200); });",
+                  "pm.test('TC-SEC-01c: No password field in any user object in roster', function() {",
+                  "  pm.response.json().forEach(function(fl) {",
+                  "    var user = fl.user || {};",
+                  "    pm.expect(user).to.not.have.property('password',",
+                  "      '[BUG][SECURITY] user.password exposed for freelancer id=' + fl.id +",
+                  "      '. Add @JsonIgnore on User.password.');",
+                  "  });",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": { "method": "GET", "url": "{{baseUrl}}" }
+        },
+
+        {
+          "name": "TC-SEC-01d: manager.password Must NOT Be Exposed",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-SEC-01d: manager password not exposed in GET all', function() {",
+                  "  pm.response.json().forEach(function(fl) {",
+                  "    var mgr = fl.manager || {};",
+                  "    if ('password' in mgr && mgr.password !== null) {",
+                  "      pm.expect.fail('[BUG][SECURITY] manager.password is exposed for freelancer id=' + fl.id +",
+                  "        '. Manager seed data may store plaintext password (critical vulnerability).');",
+                  "    }",
+                  "  });",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": { "method": "GET", "url": "{{baseUrl}}" }
+        },
+
+        {
+          "name": "TC-SEC-01e: Create Password Must Not Appear in Subsequent GET",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-SEC-01e: GET by id returns 200', function() { pm.response.to.have.status(200); });",
+                  "pm.test('TC-SEC-01e: Plain-text create password not found in GET response body', function() {",
+                  "  var createPwd = pm.collectionVariables.get('createPassword');",
+                  "  if (createPwd) {",
+                  "    pm.expect(pm.response.text()).to.not.include(createPwd,",
+                  "      '[BUG][SECURITY] One-time plain-text password from create response found in GET response.');",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": { "method": "GET", "url": "{{baseUrl}}/{{liveId}}" }
+        },
+
+        {
+          "name": "TC-SEC-02a: Create Password Is Not Empty",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-SEC-02a: createPassword variable is not empty', function() {",
+                  "  var pwd = pm.collectionVariables.get('createPassword');",
+                  "  pm.expect(pwd, '[BUG] Create response password is empty — PasswordGenerator may have failed.').to.not.be.empty;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": { "method": "GET", "url": "{{baseUrl}}/{{liveId}}" }
+        },
+
+        {
+          "name": "TC-SEC-02b: Create Password Is Exactly 12 Characters",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-SEC-02b: Auto-generated password length is 12', function() {",
+                  "  var pwd = pm.collectionVariables.get('createPassword') || '';",
+                  "  pm.expect(pwd.length).to.equal(12,",
+                  "    '[BUG] Expected 12-char password, got ' + pwd.length + ': \"' + pwd + '\"');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": { "method": "GET", "url": "{{baseUrl}}/{{liveId}}" }
+        },
+
+        {
+          "name": "TC-SEC-02c: Create Password Is NOT a BCrypt Hash",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-SEC-02c: Create response password is plain text (not BCrypt)', function() {",
+                  "  var pwd = pm.collectionVariables.get('createPassword') || '';",
+                  "  pm.expect(pwd).to.not.match(/^\\$2[ab]\\$/,",
+                  "    '[BUG] Create response returned a BCrypt hash instead of plain-text password.');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": { "method": "GET", "url": "{{baseUrl}}/{{liveId}}" }
+        },
+
+        {
+          "name": "TC-SEC-02d: Create Password Has Required Complexity",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var pwd = pm.collectionVariables.get('createPassword') || '';",
+                  "pm.test('TC-SEC-02d: Password has at least 1 uppercase letter', function() {",
+                  "  pm.expect(pwd).to.match(/[A-Z]/, '[BUG] Password \"' + pwd + '\" has no uppercase letter.');",
+                  "});",
+                  "pm.test('TC-SEC-02d: Password has at least 1 lowercase letter', function() {",
+                  "  pm.expect(pwd).to.match(/[a-z]/, '[BUG] Password \"' + pwd + '\" has no lowercase letter.');",
+                  "});",
+                  "pm.test('TC-SEC-02d: Password has at least 1 digit', function() {",
+                  "  pm.expect(pwd).to.match(/[0-9]/, '[BUG] Password \"' + pwd + '\" has no digit.');",
+                  "});",
+                  "pm.test('TC-SEC-02d: Password has at least 1 special character', function() {",
+                  "  pm.expect(pwd).to.match(/[^A-Za-z0-9]/, '[BUG] Password \"' + pwd + '\" has no special character.');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": { "method": "GET", "url": "{{baseUrl}}/{{liveId}}" }
+        },
+
+        {
+          "name": "[Teardown] Delete Live Freelancer",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[Teardown] Live freelancer deleted (200)', function() { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ],
+          "request": { "method": "DELETE", "url": "{{baseUrl}}/{{liveId}}" }
+        }
+
+      ]
+    }
+
+  ]
+}

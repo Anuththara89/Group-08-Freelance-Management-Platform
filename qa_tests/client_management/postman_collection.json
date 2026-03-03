@@ -1,0 +1,1356 @@
+{
+  "info": {
+    "_postman_id": "client-mgmt-api-qa-v1",
+    "name": "Client Management — Client API QA",
+    "description": "Full QA test suite for the Client Management API.\n\nBase URL: http://localhost:8080/clients\n\nActual endpoints:\n  POST   /clients/add\n  GET    /clients/all\n  DELETE /clients/delete/{id}\n  GET    /clients/{id}       — NOT IMPLEMENTED\n  PUT    /clients/{id}       — NOT IMPLEMENTED\n\nConverted from pytest suites:\n  • test_01_crud.py        — Core CRUD lifecycle\n  • test_02_edge_cases.py  — Boundary & validation tests\n  • test_03_integrity.py   — Cascade delete, manager linkage, missing fields, URL conventions, security\n\nRun all folders IN ORDER with the Postman Collection Runner.\nEnsure the Spring Boot backend is running before executing.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl",    "value": "http://localhost:8080/clients", "type": "string" },
+    { "key": "liveId",     "value": "", "type": "string" },
+    { "key": "liveEmail",  "value": "", "type": "string" },
+    { "key": "liveName",   "value": "", "type": "string" },
+    { "key": "tempId",     "value": "", "type": "string" },
+    { "key": "tempEmail",  "value": "", "type": "string" },
+    { "key": "tempName",   "value": "", "type": "string" },
+    { "key": "_requestBody", "value": "{}", "type": "string" },
+    { "key": "_email",     "value": "", "type": "string" },
+    { "key": "_name",      "value": "", "type": "string" }
+  ],
+  "item": [
+
+    {
+      "name": "01 — CRUD",
+      "description": "Core CRUD lifecycle tests. Maps to test_01_crud.py.",
+      "item": [
+
+        {
+          "name": "[Setup] Create Live Client",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "var s = Math.random().toString(36).substring(2, 10);",
+                  "pm.collectionVariables.set('_email', 'qa.client.' + s + '@testdomain.com');",
+                  "pm.collectionVariables.set('_name',  'QA Client ' + s);",
+                  "pm.collectionVariables.set('_requestBody', JSON.stringify({",
+                  "  name:  'QA Client ' + s,",
+                  "  email: 'qa.client.' + s + '@testdomain.com',",
+                  "  phone: '0771234567'",
+                  "}));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[Setup] Create returns 200', function() { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "  var body = pm.response.json();",
+                  "  pm.collectionVariables.set('liveId',    String(body.id));",
+                  "  pm.collectionVariables.set('liveEmail', pm.collectionVariables.get('_email'));",
+                  "  pm.collectionVariables.set('liveName',  pm.collectionVariables.get('_name'));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{{_requestBody}}", "options": { "raw": { "language": "json" } } },
+            "url": "{{baseUrl}}/add"
+          }
+        },
+
+        {
+          "name": "TC-CRUD-01: Create Client",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "var s = Math.random().toString(36).substring(2, 10);",
+                  "pm.collectionVariables.set('_email', 'qa.client.' + s + '@testdomain.com');",
+                  "pm.collectionVariables.set('_name',  'QA Client ' + s);",
+                  "pm.collectionVariables.set('_requestBody', JSON.stringify({",
+                  "  name:  'QA Client ' + s,",
+                  "  email: 'qa.client.' + s + '@testdomain.com',",
+                  "  phone: '0771234567'",
+                  "}));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var sentName  = pm.collectionVariables.get('_name');",
+                  "var sentEmail = pm.collectionVariables.get('_email');",
+                  "",
+                  "pm.test('TC-CRUD-01a: Returns 201 Created (spec expects 201)', function() {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "var body = pm.response.json();",
+                  "",
+                  "pm.test('TC-CRUD-01b: Response contains id (integer)', function() {",
+                  "  pm.expect(body).to.have.property('id');",
+                  "  pm.expect(body.id).to.be.a('number');",
+                  "});",
+                  "",
+                  "pm.test('TC-CRUD-01c: Response name matches input', function() {",
+                  "  pm.expect(body.name).to.equal(sentName);",
+                  "});",
+                  "",
+                  "pm.test('TC-CRUD-01d: Response email matches input', function() {",
+                  "  pm.expect(body.email).to.equal(sentEmail);",
+                  "});",
+                  "",
+                  "pm.test('TC-CRUD-01e: Response phone matches input', function() {",
+                  "  pm.expect(body.phone).to.equal('0771234567');",
+                  "});",
+                  "",
+                  "pm.test('TC-CRUD-01f: Response contains companyName field', function() {",
+                  "  var hasCompany = body.hasOwnProperty('companyName') || body.hasOwnProperty('company_name');",
+                  "  pm.expect(hasCompany, '[BUG] companyName field missing — DB has company_name but entity does not map it.').to.be.true;",
+                  "});",
+                  "",
+                  "pm.test('TC-CRUD-01g: Response contains temporaryPassword (per spec)', function() {",
+                  "  var hasPwd = body.hasOwnProperty('temporaryPassword') || body.hasOwnProperty('password');",
+                  "  pm.expect(hasPwd, '[BUG] No temporary password in create response — spec requires it for onboarding.').to.be.true;",
+                  "});",
+                  "",
+                  "// Cleanup",
+                  "if (body && body.id) {",
+                  "  pm.sendRequest({ url: pm.collectionVariables.get('baseUrl') + '/delete/' + body.id, method: 'DELETE' }, function() {});",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{{_requestBody}}", "options": { "raw": { "language": "json" } } },
+            "url": "{{baseUrl}}/add",
+            "description": "POST /clients/add with valid payload.\nAsserts: 201 (spec), id present, name/email/phone match, companyName field, temporaryPassword field."
+          }
+        },
+
+        {
+          "name": "TC-CRUD-02: View All Clients",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-CRUD-02a: Returns 200 OK', function() { pm.response.to.have.status(200); });",
+                  "",
+                  "pm.test('TC-CRUD-02b: Response is a JSON array', function() {",
+                  "  pm.expect(pm.response.json()).to.be.an('array');",
+                  "});",
+                  "",
+                  "pm.test('TC-CRUD-02c: Every record has id, name, and email', function() {",
+                  "  var list = pm.response.json();",
+                  "  pm.expect(list.length).to.be.greaterThan(0, 'Client list should not be empty.');",
+                  "  list.forEach(function(cl) {",
+                  "    pm.expect(cl, JSON.stringify(cl)).to.have.property('id');",
+                  "    pm.expect(cl, JSON.stringify(cl)).to.have.property('name');",
+                  "    pm.expect(cl, JSON.stringify(cl)).to.have.property('email');",
+                  "  });",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/all",
+            "description": "GET /clients/all — full client list.\nAsserts: 200, JSON array, each record has id+name+email."
+          }
+        },
+
+        {
+          "name": "TC-CRUD-03: Get Client by ID (NOT IMPLEMENTED)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-CRUD-03: GET /clients/{id} returns 200 (endpoint exists)', function() {",
+                  "  pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/{{liveId}}",
+            "description": "GET /clients/{id} — NOT IMPLEMENTED in the controller.\nThe spec requires 'Search by ID' but only /clients/all exists.\nExpected to FAIL."
+          }
+        },
+
+        {
+          "name": "TC-CRUD-04: Update Client (NOT IMPLEMENTED)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "pm.collectionVariables.set('_requestBody', JSON.stringify({",
+                  "  name:  'Updated Client Name',",
+                  "  email: pm.collectionVariables.get('liveEmail'),",
+                  "  phone: '0779999999'",
+                  "}));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-CRUD-04: PUT /clients/{id} returns 200 (endpoint exists)', function() {",
+                  "  pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{{_requestBody}}", "options": { "raw": { "language": "json" } } },
+            "url": "{{baseUrl}}/{{liveId}}",
+            "description": "PUT /clients/{id} — NOT IMPLEMENTED in the controller.\nThe spec requires 'Update Client Info' but no @PutMapping handler exists.\nExpected to FAIL."
+          }
+        },
+
+        {
+          "name": "[Setup] Create Client for Delete Tests",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "var s = Math.random().toString(36).substring(2, 10);",
+                  "pm.collectionVariables.set('tempEmail', 'qa.client.' + s + '@testdomain.com');",
+                  "pm.collectionVariables.set('tempName',  'QA Client ' + s);",
+                  "pm.collectionVariables.set('_requestBody', JSON.stringify({",
+                  "  name:  'QA Client ' + s,",
+                  "  email: 'qa.client.' + s + '@testdomain.com',",
+                  "  phone: '0771234567'",
+                  "}));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[Setup] Create returns 200', function() { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "  pm.collectionVariables.set('tempId', String(pm.response.json().id));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{{_requestBody}}", "options": { "raw": { "language": "json" } } },
+            "url": "{{baseUrl}}/add"
+          }
+        },
+
+        {
+          "name": "TC-CRUD-05a: Delete Returns 200",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-CRUD-05a: Delete returns 200 OK', function() { pm.response.to.have.status(200); });",
+                  "",
+                  "pm.test('TC-CRUD-05c: Response body confirms success', function() {",
+                  "  var body = pm.response.text().toLowerCase();",
+                  "  pm.expect(body).to.match(/deleted|success/,",
+                  "    '[BUG] Delete response body does not confirm success. Got: ' + pm.response.text());",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "url": "{{baseUrl}}/delete/{{tempId}}",
+            "description": "DELETE /clients/delete/{id}.\nAsserts: 200, response body contains 'deleted' or 'success'."
+          }
+        },
+
+        {
+          "name": "TC-CRUD-05b: Verify Deleted Client Not in List",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-CRUD-05b: Deleted client email not found in list', function() {",
+                  "  var deletedEmail = pm.collectionVariables.get('tempEmail');",
+                  "  var found = pm.response.json().find(function(cl) { return cl.email === deletedEmail; });",
+                  "  pm.expect(found, '[BUG] Client still in list after DELETE.').to.be.undefined;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/all"
+          }
+        },
+
+        {
+          "name": "TC-CRUD-05d: Delete Non-existent ID → 404",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-CRUD-05d: DELETE /clients/delete/999999 returns 404', function() {",
+                  "  pm.response.to.have.status(404);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "url": "{{baseUrl}}/delete/999999"
+          }
+        },
+
+        {
+          "name": "[Teardown] Delete Live Client",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "// Best-effort cleanup — may have been deleted by earlier tests",
+                  "pm.test('[Teardown] Live client deleted', function() {",
+                  "  pm.expect([200, 404]).to.include(pm.response.code);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": { "method": "DELETE", "url": "{{baseUrl}}/delete/{{liveId}}" }
+        }
+
+      ]
+    },
+
+    {
+      "name": "02 — Edge Cases",
+      "description": "Boundary and error-handling tests. Maps to test_02_edge_cases.py.",
+      "item": [
+
+        {
+          "name": "[Setup] Create Live Client",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "var s = Math.random().toString(36).substring(2, 10);",
+                  "pm.collectionVariables.set('_email', 'qa.client.' + s + '@testdomain.com');",
+                  "pm.collectionVariables.set('_name',  'QA Client ' + s);",
+                  "pm.collectionVariables.set('_requestBody', JSON.stringify({",
+                  "  name:  'QA Client ' + s,",
+                  "  email: 'qa.client.' + s + '@testdomain.com',",
+                  "  phone: '0771234567'",
+                  "}));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[Setup] Create returns 200', function() { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "  var body = pm.response.json();",
+                  "  pm.collectionVariables.set('liveId',    String(body.id));",
+                  "  pm.collectionVariables.set('liveEmail', pm.collectionVariables.get('_email'));",
+                  "  pm.collectionVariables.set('liveName',  pm.collectionVariables.get('_name'));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{{_requestBody}}", "options": { "raw": { "language": "json" } } },
+            "url": "{{baseUrl}}/add"
+          }
+        },
+
+        {
+          "name": "TC-EDGE-01a: Duplicate Name Is Rejected",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "var liveName = pm.collectionVariables.get('liveName');",
+                  "pm.collectionVariables.set('_email', 'dup.' + Math.random().toString(36).substring(2,8) + '@testdomain.com');",
+                  "pm.collectionVariables.set('_requestBody', JSON.stringify({",
+                  "  name:  liveName,",
+                  "  email: 'dup.' + Math.random().toString(36).substring(2,8) + '@testdomain.com',",
+                  "  phone: '0771234567'",
+                  "}));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-EDGE-01a: Duplicate client name is rejected (not 200/201)', function() {",
+                  "  pm.expect([200, 201]).to.not.include(pm.response.code,",
+                  "    '[BUG] Duplicate client name ACCEPTED — ClientService has NO duplicate checking.');",
+                  "});",
+                  "// Cleanup if accepted",
+                  "if ([200, 201].indexOf(pm.response.code) !== -1) {",
+                  "  var body = pm.response.json();",
+                  "  if (body && body.id) {",
+                  "    pm.sendRequest({ url: pm.collectionVariables.get('baseUrl') + '/delete/' + body.id, method: 'DELETE' }, function() {});",
+                  "  }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{{_requestBody}}", "options": { "raw": { "language": "json" } } },
+            "url": "{{baseUrl}}/add",
+            "description": "POST with same name as existing client (different email).\nSpec requires duplicate name prevention but service has no check."
+          }
+        },
+
+        {
+          "name": "TC-EDGE-01b: Duplicate Email Is Rejected",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "var liveEmail = pm.collectionVariables.get('liveEmail');",
+                  "pm.collectionVariables.set('_requestBody', JSON.stringify({",
+                  "  name:  'Different ' + Math.random().toString(36).substring(2, 8),",
+                  "  email: liveEmail,",
+                  "  phone: '0771234567'",
+                  "}));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-EDGE-01b: Duplicate client email is rejected (not 200/201)', function() {",
+                  "  pm.expect([200, 201]).to.not.include(pm.response.code,",
+                  "    '[BUG] Duplicate email ACCEPTED — DB has no UNIQUE constraint on client.email.');",
+                  "});",
+                  "if ([200, 201].indexOf(pm.response.code) !== -1) {",
+                  "  var body = pm.response.json();",
+                  "  if (body && body.id) {",
+                  "    pm.sendRequest({ url: pm.collectionVariables.get('baseUrl') + '/delete/' + body.id, method: 'DELETE' }, function() {});",
+                  "  }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{{_requestBody}}", "options": { "raw": { "language": "json" } } },
+            "url": "{{baseUrl}}/add",
+            "description": "POST with same email as existing client (different name).\nDB has no UNIQUE on email — duplicates silently created."
+          }
+        },
+
+        {
+          "name": "TC-EDGE-02a: DELETE Non-existent ID → 404",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-EDGE-02a: DELETE /clients/delete/999999 returns 404', function() {",
+                  "  pm.response.to.have.status(404);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "url": "{{baseUrl}}/delete/999999"
+          }
+        },
+
+        {
+          "name": "TC-EDGE-02b: DELETE Non-existent Returns Descriptive Message",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-EDGE-02b: Error body contains \"not found\"', function() {",
+                  "  pm.expect(pm.response.text().toLowerCase()).to.include('not found',",
+                  "    '[BUG] Delete error response not descriptive. Got: ' + pm.response.text());",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "url": "{{baseUrl}}/delete/999999"
+          }
+        },
+
+        {
+          "name": "TC-EDGE-02c: GET Non-existent ID → 404",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-EDGE-02c: GET /clients/999999 returns 404', function() {",
+                  "  pm.response.to.have.status(404);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/999999",
+            "description": "GET by ID endpoint is not implemented, but Spring should return 404 for the missing route."
+          }
+        },
+
+        {
+          "name": "TC-EDGE-03a: Create Without Name → 400",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-EDGE-03a: Missing name field returns 400', function() {",
+                  "  pm.expect([200, 201]).to.not.include(pm.response.code,",
+                  "    '[BUG] Client created without name — NOT NULL constraint not enforced.');",
+                  "  pm.response.to.have.status(400);",
+                  "});",
+                  "if ([200, 201].indexOf(pm.response.code) !== -1) {",
+                  "  var body = pm.response.json();",
+                  "  if (body && body.id) { pm.sendRequest({ url: pm.collectionVariables.get('baseUrl') + '/delete/' + body.id, method: 'DELETE' }, function() {}); }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"email\":\"noname@test.com\",\"phone\":\"1234\"}", "options": { "raw": { "language": "json" } } },
+            "url": "{{baseUrl}}/add"
+          }
+        },
+
+        {
+          "name": "TC-EDGE-03b: Create With null Name → 400",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-EDGE-03b: null name returns 400', function() {",
+                  "  pm.expect([200, 201]).to.not.include(pm.response.code, '[BUG] Client created with null name.');",
+                  "  pm.response.to.have.status(400);",
+                  "});",
+                  "if ([200, 201].indexOf(pm.response.code) !== -1) {",
+                  "  var body = pm.response.json();",
+                  "  if (body && body.id) { pm.sendRequest({ url: pm.collectionVariables.get('baseUrl') + '/delete/' + body.id, method: 'DELETE' }, function() {}); }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"name\":null,\"email\":\"nullname@test.com\",\"phone\":\"1234\"}", "options": { "raw": { "language": "json" } } },
+            "url": "{{baseUrl}}/add"
+          }
+        },
+
+        {
+          "name": "TC-EDGE-03c: Create With Empty String Name → 400",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-EDGE-03c: Empty string name returns 400', function() {",
+                  "  pm.expect([200, 201]).to.not.include(pm.response.code, '[BUG] Client created with empty string name — no @NotBlank.');",
+                  "  pm.response.to.have.status(400);",
+                  "});",
+                  "if ([200, 201].indexOf(pm.response.code) !== -1) {",
+                  "  var body = pm.response.json();",
+                  "  if (body && body.id) { pm.sendRequest({ url: pm.collectionVariables.get('baseUrl') + '/delete/' + body.id, method: 'DELETE' }, function() {}); }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"name\":\"\",\"email\":\"emptyname@test.com\",\"phone\":\"1234\"}", "options": { "raw": { "language": "json" } } },
+            "url": "{{baseUrl}}/add"
+          }
+        },
+
+        {
+          "name": "TC-EDGE-03d: Create With Empty Email → 400",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-EDGE-03d: Empty string email returns 400', function() {",
+                  "  pm.expect([200, 201]).to.not.include(pm.response.code, '[BUG] Client created with empty string email.');",
+                  "  pm.response.to.have.status(400);",
+                  "});",
+                  "if ([200, 201].indexOf(pm.response.code) !== -1) {",
+                  "  var body = pm.response.json();",
+                  "  if (body && body.id) { pm.sendRequest({ url: pm.collectionVariables.get('baseUrl') + '/delete/' + body.id, method: 'DELETE' }, function() {}); }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"name\":\"No Email Client\",\"email\":\"\",\"phone\":\"1234\"}", "options": { "raw": { "language": "json" } } },
+            "url": "{{baseUrl}}/add"
+          }
+        },
+
+        {
+          "name": "TC-EDGE-03e: Create Without Email Field → 400",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-EDGE-03e: Missing email field returns 400', function() {",
+                  "  pm.expect([200, 201]).to.not.include(pm.response.code, '[BUG] Client created without email field — spec says email is required.');",
+                  "  pm.response.to.have.status(400);",
+                  "});",
+                  "if ([200, 201].indexOf(pm.response.code) !== -1) {",
+                  "  var body = pm.response.json();",
+                  "  if (body && body.id) { pm.sendRequest({ url: pm.collectionVariables.get('baseUrl') + '/delete/' + body.id, method: 'DELETE' }, function() {}); }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"name\":\"Missing Email\",\"phone\":\"1234\"}", "options": { "raw": { "language": "json" } } },
+            "url": "{{baseUrl}}/add"
+          }
+        },
+
+        {
+          "name": "[Setup] Create Client for Re-reg Email Test",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "var s = Math.random().toString(36).substring(2, 10);",
+                  "pm.collectionVariables.set('tempEmail', 'qa.client.' + s + '@testdomain.com');",
+                  "pm.collectionVariables.set('tempName',  'QA Client ' + s);",
+                  "pm.collectionVariables.set('_requestBody', JSON.stringify({",
+                  "  name:  'QA Client ' + s,",
+                  "  email: 'qa.client.' + s + '@testdomain.com',",
+                  "  phone: '0771234567'",
+                  "}));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[Setup] Create returns 200', function() { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) { pm.collectionVariables.set('tempId', String(pm.response.json().id)); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{{_requestBody}}", "options": { "raw": { "language": "json" } } },
+            "url": "{{baseUrl}}/add"
+          }
+        },
+
+        {
+          "name": "TC-EDGE-04a-1: Delete Client (for re-registration)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-EDGE-04a: Delete returns 200', function() { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ],
+          "request": { "method": "DELETE", "url": "{{baseUrl}}/delete/{{tempId}}" }
+        },
+
+        {
+          "name": "TC-EDGE-04a-2: Re-create With Same Email → 200",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "var origEmail = pm.collectionVariables.get('tempEmail');",
+                  "var origName  = pm.collectionVariables.get('tempName');",
+                  "pm.collectionVariables.set('_email', origEmail);",
+                  "pm.collectionVariables.set('_requestBody', JSON.stringify({",
+                  "  name:  'Renewed ' + origName,",
+                  "  email: origEmail,",
+                  "  phone: '0771234567'",
+                  "}));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-EDGE-04a: Re-registration with same email returns 200', function() {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "// Cleanup",
+                  "if (pm.response.code === 200) {",
+                  "  var body = pm.response.json();",
+                  "  if (body && body.id) { pm.sendRequest({ url: pm.collectionVariables.get('baseUrl') + '/delete/' + body.id, method: 'DELETE' }, function() {}); }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{{_requestBody}}", "options": { "raw": { "language": "json" } } },
+            "url": "{{baseUrl}}/add",
+            "description": "Create → Delete → Re-create with SAME email.\nAsserts: 200 (delete freed the email)."
+          }
+        },
+
+        {
+          "name": "[Setup] Create Client for Re-reg Name Test",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "var s = Math.random().toString(36).substring(2, 10);",
+                  "pm.collectionVariables.set('tempEmail', 'qa.client.' + s + '@testdomain.com');",
+                  "pm.collectionVariables.set('tempName',  'QA Client ' + s);",
+                  "pm.collectionVariables.set('_requestBody', JSON.stringify({",
+                  "  name:  'QA Client ' + s,",
+                  "  email: 'qa.client.' + s + '@testdomain.com',",
+                  "  phone: '0771234567'",
+                  "}));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[Setup] Create returns 200', function() { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) { pm.collectionVariables.set('tempId', String(pm.response.json().id)); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{{_requestBody}}", "options": { "raw": { "language": "json" } } },
+            "url": "{{baseUrl}}/add"
+          }
+        },
+
+        {
+          "name": "TC-EDGE-04b-1: Delete Client (for name re-registration)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-EDGE-04b: Delete returns 200', function() { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ],
+          "request": { "method": "DELETE", "url": "{{baseUrl}}/delete/{{tempId}}" }
+        },
+
+        {
+          "name": "TC-EDGE-04b-2: Re-create With Same Name → 200",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "var origName = pm.collectionVariables.get('tempName');",
+                  "var s = Math.random().toString(36).substring(2, 10);",
+                  "pm.collectionVariables.set('_requestBody', JSON.stringify({",
+                  "  name:  origName,",
+                  "  email: 'renewed.' + s + '@testdomain.com',",
+                  "  phone: '0771234567'",
+                  "}));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-EDGE-04b: Re-registration with same name returns 200', function() {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "if (pm.response.code === 200) {",
+                  "  var body = pm.response.json();",
+                  "  if (body && body.id) { pm.sendRequest({ url: pm.collectionVariables.get('baseUrl') + '/delete/' + body.id, method: 'DELETE' }, function() {}); }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{{_requestBody}}", "options": { "raw": { "language": "json" } } },
+            "url": "{{baseUrl}}/add",
+            "description": "Create → Delete → Re-create with SAME name (different email).\nAsserts: 200."
+          }
+        },
+
+        {
+          "name": "[Teardown] Delete Live Client",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[Teardown] Live client deleted', function() { pm.expect([200, 404]).to.include(pm.response.code); });"
+                ]
+              }
+            }
+          ],
+          "request": { "method": "DELETE", "url": "{{baseUrl}}/delete/{{liveId}}" }
+        }
+
+      ]
+    },
+
+    {
+      "name": "03 — Integrity & Security",
+      "description": "Cascade delete, manager linkage, missing entity fields, URL conventions, security. Maps to test_03_integrity.py.",
+      "item": [
+
+        {
+          "name": "[Setup INT-01a] Create Client for Cascade Delete Test",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "var s = Math.random().toString(36).substring(2, 10);",
+                  "pm.collectionVariables.set('tempEmail', 'qa.client.' + s + '@testdomain.com');",
+                  "pm.collectionVariables.set('_requestBody', JSON.stringify({",
+                  "  name:  'QA Client ' + s,",
+                  "  email: 'qa.client.' + s + '@testdomain.com',",
+                  "  phone: '0771234567'",
+                  "}));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[Setup] Create returns 200', function() { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) { pm.collectionVariables.set('tempId', String(pm.response.json().id)); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{{_requestBody}}", "options": { "raw": { "language": "json" } } },
+            "url": "{{baseUrl}}/add"
+          }
+        },
+
+        {
+          "name": "TC-INT-01a-1: Delete Client (cascade trigger)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-INT-01a: Delete returns 200', function() { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ],
+          "request": { "method": "DELETE", "url": "{{baseUrl}}/delete/{{tempId}}" }
+        },
+
+        {
+          "name": "TC-INT-01a-2: Deleted Client Not in List",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-INT-01a: Deleted client email not in list', function() {",
+                  "  var email = pm.collectionVariables.get('tempEmail');",
+                  "  var found = pm.response.json().find(function(cl) { return cl.email === email; });",
+                  "  pm.expect(found, '[BUG] Client still in list after DELETE.').to.be.undefined;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": { "method": "GET", "url": "{{baseUrl}}/all" }
+        },
+
+        {
+          "name": "[Setup INT-01b] Create Client for Re-registration Cascade Test",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "var s = Math.random().toString(36).substring(2, 10);",
+                  "pm.collectionVariables.set('tempEmail', 'qa.client.' + s + '@testdomain.com');",
+                  "pm.collectionVariables.set('tempName',  'QA Client ' + s);",
+                  "pm.collectionVariables.set('_requestBody', JSON.stringify({",
+                  "  name:  'QA Client ' + s,",
+                  "  email: 'qa.client.' + s + '@testdomain.com',",
+                  "  phone: '0771234567'",
+                  "}));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[Setup] Create returns 200', function() { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) { pm.collectionVariables.set('tempId', String(pm.response.json().id)); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{{_requestBody}}", "options": { "raw": { "language": "json" } } },
+            "url": "{{baseUrl}}/add"
+          }
+        },
+
+        {
+          "name": "TC-INT-01b-1: Delete for Re-registration Test",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-INT-01b: Delete returns 200', function() { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ],
+          "request": { "method": "DELETE", "url": "{{baseUrl}}/delete/{{tempId}}" }
+        },
+
+        {
+          "name": "TC-INT-01b-2: Re-create Same Email → 200 (record fully removed)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "var origEmail = pm.collectionVariables.get('tempEmail');",
+                  "var origName  = pm.collectionVariables.get('tempName');",
+                  "pm.collectionVariables.set('_requestBody', JSON.stringify({",
+                  "  name:  'Reborn ' + origName,",
+                  "  email: origEmail,",
+                  "  phone: '0771234567'",
+                  "}));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-INT-01b: Re-creation with same email returns 200', function() {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "if (pm.response.code === 200) {",
+                  "  var body = pm.response.json();",
+                  "  if (body && body.id) { pm.sendRequest({ url: pm.collectionVariables.get('baseUrl') + '/delete/' + body.id, method: 'DELETE' }, function() {}); }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{{_requestBody}}", "options": { "raw": { "language": "json" } } },
+            "url": "{{baseUrl}}/add"
+          }
+        },
+
+        {
+          "name": "[Setup] Create Live Client (for INT-02, INT-03, SEC tests)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "var s = Math.random().toString(36).substring(2, 10);",
+                  "pm.collectionVariables.set('_email', 'qa.client.' + s + '@testdomain.com');",
+                  "pm.collectionVariables.set('_name',  'QA Client ' + s);",
+                  "pm.collectionVariables.set('_requestBody', JSON.stringify({",
+                  "  name:  'QA Client ' + s,",
+                  "  email: 'qa.client.' + s + '@testdomain.com',",
+                  "  phone: '0771234567'",
+                  "}));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[Setup] Create returns 200', function() { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "  var body = pm.response.json();",
+                  "  pm.collectionVariables.set('liveId',    String(body.id));",
+                  "  pm.collectionVariables.set('liveEmail', pm.collectionVariables.get('_email'));",
+                  "  pm.collectionVariables.set('liveName',  pm.collectionVariables.get('_name'));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{{_requestBody}}", "options": { "raw": { "language": "json" } } },
+            "url": "{{baseUrl}}/add"
+          }
+        },
+
+        {
+          "name": "TC-INT-02a: Client Response Has Manager Field",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-INT-02a: GET all returns 200', function() { pm.response.to.have.status(200); });",
+                  "var liveId = parseInt(pm.collectionVariables.get('liveId'));",
+                  "var found = pm.response.json().find(function(c) { return c.id === liveId; });",
+                  "pm.test('TC-INT-02a: Live client found in list', function() { pm.expect(found).to.not.be.undefined; });",
+                  "pm.test('TC-INT-02a: Client has a manager/manager_id field', function() {",
+                  "  if (!found) return;",
+                  "  var hasMgr = found.hasOwnProperty('manager') || found.hasOwnProperty('manager_id') || found.hasOwnProperty('managerId');",
+                  "  pm.expect(hasMgr, '[BUG] No manager field — Client.java does not map manager_id column.').to.be.true;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/all",
+            "description": "Spec requires manager linkage but Client entity does not map the manager_id column."
+          }
+        },
+
+        {
+          "name": "TC-INT-02b: Client Manager ID == 1",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var liveId = parseInt(pm.collectionVariables.get('liveId'));",
+                  "var found = pm.response.json().find(function(c) { return c.id === liveId; });",
+                  "pm.test('TC-INT-02b: Client has manager_id == 1', function() {",
+                  "  if (!found) { pm.expect.fail('Live client not found in list.'); return; }",
+                  "  var mgrId = found.managerId || found.manager_id || (found.manager && found.manager.id);",
+                  "  pm.expect(mgrId, '[BUG] manager_id=' + mgrId + ' — ClientService does not assign manager during creation.').to.equal(1);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": { "method": "GET", "url": "{{baseUrl}}/all" }
+        },
+
+        {
+          "name": "TC-INT-03a: Client Has companyName Field",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var liveId = parseInt(pm.collectionVariables.get('liveId'));",
+                  "var found = pm.response.json().find(function(c) { return c.id === liveId; });",
+                  "pm.test('TC-INT-03a: Client response includes companyName', function() {",
+                  "  if (!found) { pm.expect.fail('Client not found.'); return; }",
+                  "  var has = found.hasOwnProperty('companyName') || found.hasOwnProperty('company_name');",
+                  "  pm.expect(has, '[BUG] companyName missing — DB has column but Client.java does not map it. Keys: ' + Object.keys(found).join(', ')).to.be.true;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": { "method": "GET", "url": "{{baseUrl}}/all" }
+        },
+
+        {
+          "name": "TC-INT-03b: Client Has contractType Field",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var liveId = parseInt(pm.collectionVariables.get('liveId'));",
+                  "var found = pm.response.json().find(function(c) { return c.id === liveId; });",
+                  "pm.test('TC-INT-03b: Client response includes contractType', function() {",
+                  "  if (!found) { pm.expect.fail('Client not found.'); return; }",
+                  "  var has = found.hasOwnProperty('contractType') || found.hasOwnProperty('contract_type');",
+                  "  pm.expect(has, '[BUG] contractType missing — DB has column but Client.java does not map it.').to.be.true;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": { "method": "GET", "url": "{{baseUrl}}/all" }
+        },
+
+        {
+          "name": "TC-INT-03c: Client Has paymentStatus Field",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var liveId = parseInt(pm.collectionVariables.get('liveId'));",
+                  "var found = pm.response.json().find(function(c) { return c.id === liveId; });",
+                  "pm.test('TC-INT-03c: Client response includes paymentStatus', function() {",
+                  "  if (!found) { pm.expect.fail('Client not found.'); return; }",
+                  "  var has = found.hasOwnProperty('paymentStatus') || found.hasOwnProperty('payment_status');",
+                  "  pm.expect(has, '[BUG] paymentStatus missing — DB has column but Client.java does not map it.').to.be.true;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": { "method": "GET", "url": "{{baseUrl}}/all" }
+        },
+
+        {
+          "name": "TC-INT-04a: Spec URL POST /api/client/create Exists",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "var s = Math.random().toString(36).substring(2, 10);",
+                  "pm.collectionVariables.set('_email', 'qa.spec.' + s + '@testdomain.com');",
+                  "pm.collectionVariables.set('_requestBody', JSON.stringify({",
+                  "  name:  'QA Spec Client ' + s,",
+                  "  email: 'qa.spec.' + s + '@testdomain.com',",
+                  "  phone: '0771234567'",
+                  "}));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-INT-04a: POST /api/client/create does not return 404', function() {",
+                  "  pm.expect(pm.response.code).to.not.equal(404,",
+                  "    '[BUG] Spec URL /api/client/create returned 404 — actual endpoint is /clients/add. Controller uses wrong @RequestMapping.');",
+                  "});",
+                  "// Cleanup if it worked",
+                  "if ([200, 201].indexOf(pm.response.code) !== -1) {",
+                  "  try {",
+                  "    var body = pm.response.json();",
+                  "    if (body && body.id) {",
+                  "      pm.sendRequest({ url: pm.collectionVariables.get('baseUrl') + '/delete/' + body.id, method: 'DELETE' }, function() {});",
+                  "    }",
+                  "  } catch(e) {}",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{{_requestBody}}", "options": { "raw": { "language": "json" } } },
+            "url": "http://localhost:8080/api/client/create",
+            "description": "Tests the SPEC URL (not the actual URL).\nSpec says POST /api/client/create, actual is POST /clients/add."
+          }
+        },
+
+        {
+          "name": "TC-INT-04b: Spec URL GET /api/client Exists",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-INT-04b: GET /api/client returns 200', function() {",
+                  "  pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "http://localhost:8080/api/client",
+            "description": "Spec says GET /api/client, actual is GET /clients/all."
+          }
+        },
+
+        {
+          "name": "TC-INT-04c: Spec URL DELETE /api/client/{id} Exists",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-INT-04c: DELETE /api/client/999999 returns 200 or 404 (not route-level 404)', function() {",
+                  "  pm.expect([200, 404]).to.include(pm.response.code,",
+                  "    '[BUG] Spec URL /api/client/{id} returned ' + pm.response.code + ' — actual endpoint is /clients/delete/{id}.');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "url": "http://localhost:8080/api/client/999999",
+            "description": "Spec says DELETE /api/client/{id}, actual is DELETE /clients/delete/{id}."
+          }
+        },
+
+        {
+          "name": "TC-SEC-01: No BCrypt Hashes or Passwords in GET All",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('TC-SEC-01: GET all returns 200', function() { pm.response.to.have.status(200); });",
+                  "pm.test('TC-SEC-01: No BCrypt hashes or password fields exposed', function() {",
+                  "  pm.response.json().forEach(function(cl) {",
+                  "    Object.keys(cl).forEach(function(key) {",
+                  "      var val = cl[key];",
+                  "      if (typeof val === 'string' && val.startsWith('$2')) {",
+                  "        pm.expect.fail('[BUG][SECURITY] BCrypt hash found in field \"' + key + '\" for client id=' + cl.id);",
+                  "      }",
+                  "      if (typeof val === 'object' && val !== null) {",
+                  "        Object.keys(val).forEach(function(k2) {",
+                  "          if (k2 === 'password' && val[k2] !== null) {",
+                  "            pm.expect.fail('[BUG][SECURITY] Password field exposed in nested object for client id=' + cl.id + ', key=' + key + '.' + k2);",
+                  "          }",
+                  "        });",
+                  "      }",
+                  "    });",
+                  "  });",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/all",
+            "description": "Defensive check — scan client responses for BCrypt hashes or exposed password fields."
+          }
+        },
+
+        {
+          "name": "[Teardown] Delete Live Client",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[Teardown] Live client deleted', function() { pm.expect([200, 404]).to.include(pm.response.code); });"
+                ]
+              }
+            }
+          ],
+          "request": { "method": "DELETE", "url": "{{baseUrl}}/delete/{{liveId}}" }
+        }
+
+      ]
+    }
+
+  ]
+}
